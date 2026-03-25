@@ -38,7 +38,6 @@ const DICTIONARY_WORDS = [
   'summer', 'winter', 'spring', 'autumn', 'rain', 'snow', 'storm'
 ];
 
-// URL Scanner Constants
 const TYPOSQUAT_TARGETS = [
   'google', 'facebook', 'amazon', 'apple', 'microsoft', 'paypal', 'netflix',
   'bank', 'hdfc', 'sbi', 'icici', 'chase', 'wellsfargo', 'citi', 'hsbc',
@@ -61,9 +60,7 @@ const TYPOSQUAT_TARGETS = [
 ];
 
 const RISKY_TLDS = ['.xyz', '.top', '.tk', '.ml', '.ga', '.cf', '.pw', '.cc', '.ws', '.buzz', '.icu', '.su', '.racing', '.win', '.download', '.click', '.link', '.work', '.party', '.gq', '.fit', '.kim', '.science', '.review', '.stream', '.date', '.faith', '.loan', '.cricket'];
-
 const MALWARE_EXTENSIONS = ['.exe', '.apk', '.bat', '.cmd', '.com', '.cpl', '.scr', '.vbs', '.js', '.jse', '.wsf', '.wsh', '.msi', '.dll', '.jar', '.pif', '.vba', '.vbe', '.ps1', '.sh', '.bash', '.zsh', '.app', '.ipa', '.dmg', '.pkg', '.deb', '.rpm', '.vhd', '.iso', '.img'];
-
 const PHISHING_KEYWORDS = {
   urgency: ['urgent', 'immediate', 'action', 'now', 'limited', 'expire', 'suspended', 'verify', 'confirm', 'alert', 'warning', 'notice', 'update'],
   account: ['account', 'login', 'signin', 'log-in', 'sign-in', 'authenticate', 'security', 'password', 'credentials'],
@@ -72,15 +69,14 @@ const PHISHING_KEYWORDS = {
   fake: ['secure', 'official', 'support', 'helpdesk', 'customer', 'service', 'representative', 'agent']
 };
 
-// Helper Functions
-async function sha1(message: string): Promise<string> {
+async function sha1(message) {
   const msgBuffer = new TextEncoder().encode(message);
   const hashBuffer = await crypto.subtle.digest('SHA-1', msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
-function calculateEntropy(password: string): number {
+function calculateEntropy(password) {
   let charsetSize = 0;
   if (/[a-z]/.test(password)) charsetSize += 26;
   if (/[A-Z]/.test(password)) charsetSize += 26;
@@ -90,7 +86,7 @@ function calculateEntropy(password: string): number {
   return Math.floor(password.length * Math.log2(charsetSize));
 }
 
-function estimateCrackTime(entropy: number): { text: string, seconds: number } {
+function estimateCrackTime(entropy) {
   const guessesPerSecond = 10000000000;
   const totalGuesses = Math.pow(2, entropy);
   const seconds = totalGuesses / guessesPerSecond;
@@ -105,34 +101,34 @@ function estimateCrackTime(entropy: number): { text: string, seconds: number } {
   return { text: 'Billions of years', seconds };
 }
 
-function detectKeyboardPatterns(password: string): string[] {
-  const patterns: string[] = [];
+function detectKeyboardPatterns(password) {
+  const patterns = [];
   KEYBOARD_PATTERNS.forEach(p => { if (password.toLowerCase().includes(p)) patterns.push(`Keyboard pattern: "${p}"`); });
   return patterns;
 }
 
-function detectDictionaryWords(password: string): string[] {
-  const words: string[] = [];
+function detectDictionaryWords(password) {
+  const words = [];
   DICTIONARY_WORDS.forEach(w => { if (password.toLowerCase().includes(w)) words.push(`Common word: "${w}"`); });
   return words;
 }
 
-function detectRepeatedChars(password: string): string[] {
-  const issues: string[] = [];
+function detectRepeatedChars(password) {
+  const issues = [];
   if (/(.)\1\1/.test(password)) issues.push('Contains 3+ repeated characters (e.g., "aaa", "111")');
   if (/(012|123|234|345|456|567|678|789|987|876|765|654|543|432|321|210)/.test(password)) issues.push('Contains sequential numbers');
   if (/(abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|zyx|yxw|xwv|wvu|vut|uts|tsr|srq|rqp|qpo|pon|onm|nml|mlk|lkj|kji|jih|ihg|hgf|gfe|fed|edc|dcb|cba)/.test(password.toLowerCase())) issues.push('Contains sequential letters');
   return issues;
 }
 
-function detectLeetSpeak(password: string): boolean {
-  const leetMap: { [key: string]: string } = { '0':'o', '1':'i', '2':'z', '3':'e', '4':'a', '5':'s', '6':'g', '7':'t', '8':'b', '9':'g', '@':'a', '$':'s', '!':'i', '#':'h', '%':'x' };
+function detectLeetSpeak(password) {
+  const leetMap = { '0':'o', '1':'i', '2':'z', '3':'e', '4':'a', '5':'s', '6':'g', '7':'t', '8':'b', '9':'g', '@':'a', '$':'s', '!':'i', '#':'h', '%':'x' };
   let leetCount = 0;
   for (const char of password) { if (leetMap[char]) leetCount++; }
   return leetCount > Math.floor(password.length / 3);
 }
 
-function generatePassword(length: number = 16, options: { uppercase: boolean; lowercase: boolean; numbers: boolean; symbols: boolean; } = { uppercase: true, lowercase: true, numbers: true, symbols: true }): string {
+function generatePassword(length = 16, options = { uppercase: true, lowercase: true, numbers: true, symbols: true }) {
   let charset = '';
   if (options.lowercase) charset += 'abcdefghijklmnopqrstuvwxyz';
   if (options.uppercase) charset += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -145,16 +141,11 @@ function generatePassword(length: number = 16, options: { uppercase: boolean; lo
   return password;
 }
 
-// URL Analyzer Function
-function analyzeUrl(inputUrl: string) {
+function analyzeUrl(inputUrl) {
   let score = 0;
-  let reasons: string[] = [];
+  let reasons = [];
   let testUrl = inputUrl.trim().toLowerCase();
-
-  if (!testUrl.startsWith('http://') && !testUrl.startsWith('https://')) {
-    testUrl = 'http://' + testUrl;
-  }
-
+  if (!testUrl.startsWith('http://') && !testUrl.startsWith('https://')) { testUrl = 'http://' + testUrl; }
   try {
     const parsed = new URL(testUrl);
     const fullUrl = testUrl;
@@ -163,125 +154,85 @@ function analyzeUrl(inputUrl: string) {
     const query = parsed.search.toLowerCase();
     const domainParts = domain.split('.');
     const domainName = domainParts[0];
-
     if (parsed.protocol === 'http:') { score += 15; reasons.push("⚠️ Insecure HTTP connection"); }
-
     for (const tld of RISKY_TLDS) { if (domain.endsWith(tld)) { score += 20; reasons.push(`🚨 High-risk TLD: ${tld}`); break; } }
-
     for (const brand of TYPOSQUAT_TARGETS) {
       const legitimateTLDs = ['.com', '.org', '.net', '.io', '.co', '.gov', '.edu', '.in', '.uk', '.au', '.de', '.fr', '.jp', '.cn', '.ru', '.br', '.mx', '.ca'];
       const typoPatterns = [brand.replace(/l/g, '1').replace(/i/g, '1').replace(/e/g, '3').replace(/a/g, '4').replace(/o/g, '0'), brand + 's', brand.replace(/[aeiou]/g, ''), brand + 'login', brand + 'support', brand + 'verify', 'my' + brand, 'login-' + brand, brand + '-login', '-' + brand + '-'];
       for (const tp of typoPatterns) { if (domain.includes(tp) && !legitimateTLDs.some(tld => domain === brand + tld)) { score += 35; reasons.push(`🚨 Fake "${brand}" detected`); break; } }
     }
-
     if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(domain)) { score += 50; reasons.push("🚨 Raw IP address"); }
     if (domain.includes('xn--')) { score += 40; reasons.push("🚨 Punycode/IDN - Real domain hidden"); }
     if ((domain.includes('а') || domain.includes('е') || domain.includes('о')) && (domain.includes('google') || domain.includes('facebook') || domain.includes('amazon') || domain.includes('apple'))) { score += 45; reasons.push("🚨 HOMOGLYPH ATTACK - Cyrillic characters detected"); }
-
     for (const ext of MALWARE_EXTENSIONS) { if (path.includes(ext)) { score += 40; reasons.push(`🚨 MALWARE FILE: ${ext}`); break; } }
     if (fullUrl.includes('@') && !domain.includes('@')) { score += 35; reasons.push("🚨 @ symbol trick"); }
-
     const suspiciousSubdomains = ['login', 'signin', 'secure', 'verify', 'account', 'update', 'confirm', 'banking', 'wallet', 'support'];
     const hasSuspicious = suspiciousSubdomains.some(sub => domainParts.slice(0, -2).some(part => part.includes(sub)));
     if (hasSuspicious && domainParts.length > 2) { score += 20; reasons.push("⚠️ Suspicious subdomain"); }
-
     const shorteners = ['bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly', 'is.gd', 'buff.ly', 'cutt.ly', 'rb.gy', 'v.gd'];
     for (const s of shorteners) { if (domain.includes(s)) { score += 20; reasons.push(`⚠️ Shortened URL`); break; } }
-
     for (const [, keywords] of Object.entries(PHISHING_KEYWORDS)) { const found = keywords.filter(kw => fullUrl.includes(kw)); if (found.length >= 2) { score += 15; reasons.push(`⚠️ Phishing keywords: ${found.slice(0, 3).join(', ')}`); } }
-
     const cryptoKws = ['crypto', 'bitcoin', 'btc', 'eth', 'wallet', 'invest', 'yield', 'binance', 'double', 'giveaway', 'claim-free'];
     const foundCrypto = cryptoKws.filter(kw => fullUrl.includes(kw));
     if (foundCrypto.length >= 2) { score += 35; reasons.push(`🚨 Crypto scam detected`); }
-
-    const charCounts: { [key: string]: number } = {};
+    const charCounts = {};
     for (const char of domainName) { if (char !== '-' && char !== '.') { charCounts[char] = (charCounts[char] || 0) + 1; } }
     let entropy = 0;
     for (const char in charCounts) { const p = charCounts[char] / domainName.length; entropy -= p * Math.log2(p); }
     if (entropy > 3.5 && domainName.length > 8) { score += 20; reasons.push(`⚠️ Randomly generated domain`); }
-
     const suspParams = ['redirect=', 'url=', 'link=', 'goto=', 'next=', 'payment=', 'checkout=', 'download='];
     for (const param of suspParams) { if (query.includes(param)) { score += 20; reasons.push(`⚠️ Suspicious redirect parameter`); break; } }
     if (fullUrl.startsWith('data:') || fullUrl.startsWith('javascript:')) { score += 60; reasons.push("🚨 Dangerous protocol"); }
     if (fullUrl.length > 200) { score += 15; reasons.push(`⚠️ Very long URL`); }
-
     score = Math.min(score, 100);
-
     if (score === 0) return { isSafe: true, score: 0, reasons: ["✅ Clean URL", "✅ No threats detected"] };
     else if (score < 30) return { isSafe: true, score, reasons: ["✅ Mostly safe", ...reasons.slice(0, 2)] };
     else if (score < 60) return { isSafe: false, score, reasons: ["⚠️ SUSPICIOUS URL", ...reasons] };
     else return { isSafe: false, score, reasons: ["🚨 HIGH RISK - DO NOT VISIT", ...reasons] };
-
   } catch (e) {
     return { isSafe: false, score: 100, reasons: ["🚨 Invalid URL format"] };
   }
 }
 
-// Type Definitions
-interface GeneratorOptionsType {
-  length: number;
-  uppercase: boolean;
-  lowercase: boolean;
-  numbers: boolean;
-  symbols: boolean;
-}
-
-interface VaultItem {
-  id: string;
-  site: string;
-  username: string;
-  password: string;
-  category: string;
-  notes: string;
-  createdAt: string;
-  favorite: boolean;
-}
-
-// Main Component
 export default function PasswordBreachChecker() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [breachCount, setBreachCount] = useState<number | null>(null);
+  const [breachCount, setBreachCount] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'checker' | 'generator' | 'vault' | 'urlScanner' | 'history'>('checker');
+  const [activeTab, setActiveTab] = useState('checker');
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [copied, setCopied] = useState(false);
-  const [history, setHistory] = useState<Array<{password: string, breachCount: number | null, time: string}>>([]);
-  const [generatorOptions, setGeneratorOptions] = useState<GeneratorOptionsType>({ length: 16, uppercase: true, lowercase: true, numbers: true, symbols: true });
-
+  const [history, setHistory] = useState([]);
+  const [generatorOptions, setGeneratorOptions] = useState({ length: 16, uppercase: true, lowercase: true, numbers: true, symbols: true });
   const [urlToScan, setUrlToScan] = useState('');
   const [isScanningUrl, setIsScanningUrl] = useState(false);
-  const [urlResult, setUrlResult] = useState<{ isSafe: boolean; score: number; reasons: string[] } | null>(null);
-
+  const [urlResult, setUrlResult] = useState(null);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
-  const [vaultData, setVaultData] = useState<VaultItem[]>([]);
+  const [vaultData, setVaultData] = useState([]);
   const [vaultFilter, setVaultFilter] = useState('all');
-  const [showVaultPasswords, setShowVaultPasswords] = useState<Record<string, boolean>>({});
+  const [showVaultPasswords, setShowVaultPasswords] = useState({});
   const [newVaultItem, setNewVaultItem] = useState({ site: '', username: '', password: '', category: 'Social', notes: '' });
-  const [activeVaultMode, setActiveVaultMode] = useState<'real' | 'decoy' | null>(null);
+  const [activeVaultMode, setActiveVaultMode] = useState(null);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [setupData, setSetupData] = useState({ realPassword: '', decoyPassword: '', confirmDecoy: '' });
   const [showUnlockWarning, setShowUnlockWarning] = useState(false);
-  const [lastBackupReminder, setLastBackupReminder] = useState<number>(0);
-
-  // INTRUDER CATCHER STATES
+  const [lastBackupReminder, setLastBackupReminder] = useState(0);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [intruderAlert, setIntruderAlert] = useState<string | null>(null);
-  const [intruderLogs, setIntruderLogs] = useState<Array<{photo: string, time: string}>>([]);
+  const [intruderAlert, setIntruderAlert] = useState(null);
+  const [intruderLogs, setIntruderLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
 
-  // 🚨 PANIC BUTTON LOGIC
   useEffect(() => {
-    const handlePanic = (e: KeyboardEvent) => {
+    const handlePanic = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === '9') {
         localStorage.setItem('secure_vault_real', '00000000000'); localStorage.removeItem('secure_vault_real');
         localStorage.setItem('secure_vault_decoy', '00000000000'); localStorage.removeItem('secure_vault_decoy');
         localStorage.removeItem('intruder_logs');
-        document.body.innerHTML = '<div style="background:#f5f0e8; color:#ef4444; height:100vh; display:flex; align-items:center; justify-content:center; font-size:2rem; font-family:sans-serif; font-weight:bold;">🚨 ALL DATA PURGED. SYSTEM SECURED.</div>';
+        document.body.innerHTML = '<div style="background:#fff; color:#ef4444; height:100vh; display:flex; align-items:center; justify-content:center; font-size:2rem; font-family:sans-serif; font-weight:bold;">🚨 ALL DATA PURGED. SYSTEM SECURED.</div>';
         setTimeout(() => window.location.href = 'https://www.google.com', 1500);
       }
     };
@@ -293,30 +244,22 @@ export default function PasswordBreachChecker() {
     const realVault = localStorage.getItem('secure_vault_real');
     const decoyVault = localStorage.getItem('secure_vault_decoy');
     if (!realVault && !decoyVault) setNeedsSetup(true);
-
     const savedHistory = localStorage.getItem('passwordCheckHistory');
     if (savedHistory) { try { setHistory(JSON.parse(savedHistory)); } catch (e) {} }
-
     const savedLogs = localStorage.getItem('intruder_logs');
     if (savedLogs) { try { setIntruderLogs(JSON.parse(savedLogs)); } catch (e) {} }
-
     const savedReminder = localStorage.getItem('lastBackupReminder');
     if (savedReminder) setLastBackupReminder(parseInt(savedReminder));
   }, []);
 
-  // 🚨 AUTO-LOCK: 5 minutes inactivity
   useEffect(() => {
-    let inactivityTimer: ReturnType<typeof setTimeout>;
-    
+    let inactivityTimer;
     const resetTimer = () => {
       if (vaultUnlocked) {
         clearTimeout(inactivityTimer);
-        inactivityTimer = setTimeout(() => {
-          lockVault();
-        }, 5 * 60 * 1000);
+        inactivityTimer = setTimeout(() => { lockVault(); }, 5 * 60 * 1000);
       }
     };
-
     if (vaultUnlocked) {
       window.addEventListener('mousemove', resetTimer);
       window.addEventListener('keypress', resetTimer);
@@ -324,7 +267,6 @@ export default function PasswordBreachChecker() {
       window.addEventListener('click', resetTimer);
       resetTimer();
     }
-
     return () => {
       clearTimeout(inactivityTimer);
       window.removeEventListener('mousemove', resetTimer);
@@ -334,43 +276,36 @@ export default function PasswordBreachChecker() {
     };
   }, [vaultUnlocked]);
 
-  // 🚨 BACKUP REMINDER
   useEffect(() => {
     if (vaultUnlocked && vaultData.length > 0) {
       const now = Date.now();
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      
-      if (now - lastBackupReminder > sevenDays) {
-        setShowUnlockWarning(true);
-      }
+      if (now - lastBackupReminder > sevenDays) { setShowUnlockWarning(true); }
     }
   }, [vaultUnlocked, vaultData.length, lastBackupReminder]);
 
-  const saveToHistory = (pwd: string, count: number | null) => {
+  const saveToHistory = (pwd, count) => {
     const newHistory = [{ password: pwd, breachCount: count, time: new Date().toLocaleString() }, ...history.slice(0, 49)];
     setHistory(newHistory);
     localStorage.setItem('passwordCheckHistory', JSON.stringify(newHistory));
   };
 
-  const isCryptoLoaded = (): boolean => typeof (window as any).CryptoJS !== 'undefined';
+  const isCryptoLoaded = () => typeof window.CryptoJS !== 'undefined';
 
   const initializeDualVault = () => {
     if (!setupData.realPassword || !setupData.decoyPassword) return alert('Please fill in both passwords!');
     if (setupData.realPassword.length < 8 || setupData.decoyPassword.length < 8) return alert('Minimum 8 characters!');
     if (setupData.realPassword === setupData.decoyPassword) return alert('Real and Decoy must be DIFFERENT!');
     if (setupData.decoyPassword !== setupData.confirmDecoy) return alert('Decoy passwords do not match!');
-    
-    const emptyVault: VaultItem[] = [];
-    const encryptedReal = (window as any).CryptoJS.AES.encrypt(JSON.stringify(emptyVault), setupData.realPassword).toString();
-    const decoyVault: VaultItem[] = [
+    const emptyVault = [];
+    const encryptedReal = window.CryptoJS.AES.encrypt(JSON.stringify(emptyVault), setupData.realPassword).toString();
+    const decoyVault = [
       { id: '1', site: 'Facebook', username: 'john.doe@email.com', password: 'Password123', category: 'Social', notes: 'Personal account', createdAt: new Date().toLocaleString(), favorite: false },
       { id: '2', site: 'Gmail', username: 'johndoe@gmail.com', password: 'MyGmail2024', category: 'Email', notes: 'Primary email', createdAt: new Date().toLocaleString(), favorite: false }
     ];
-    const encryptedDecoy = (window as any).CryptoJS.AES.encrypt(JSON.stringify(decoyVault), setupData.decoyPassword).toString();
-    
+    const encryptedDecoy = window.CryptoJS.AES.encrypt(JSON.stringify(decoyVault), setupData.decoyPassword).toString();
     localStorage.setItem('secure_vault_real', encryptedReal);
     localStorage.setItem('secure_vault_decoy', encryptedDecoy);
-    
     setNeedsSetup(false);
     setMasterPassword(setupData.realPassword);
     setActiveVaultMode('real');
@@ -379,7 +314,7 @@ export default function PasswordBreachChecker() {
     setShowUnlockWarning(true);
     alert('✅ Dual Vault System Created!\n\n⚠️ IMPORTANT: Remember BOTH passwords!');
   };
-  
+
   const captureIntruder = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -400,7 +335,7 @@ export default function PasswordBreachChecker() {
           }
         }, 1000);
       }
-    } catch (err) { 
+    } catch (err) {
       setIntruderAlert('CAMERA_DENIED');
       const newLog = { photo: 'CAMERA_DENIED', time: new Date().toLocaleString() };
       const updatedLogs = [newLog, ...intruderLogs];
@@ -412,31 +347,27 @@ export default function PasswordBreachChecker() {
   const unlockVault = () => {
     if (!isCryptoLoaded()) return alert('Encryption library not loaded. Please refresh.');
     if (needsSetup) return alert('Complete setup first!');
-    
     const encryptedReal = localStorage.getItem('secure_vault_real');
     const encryptedDecoy = localStorage.getItem('secure_vault_decoy');
-    
     try {
-      const bytes = (window as any).CryptoJS.AES.decrypt(encryptedReal, masterPassword);
-      const decryptedData = JSON.parse(bytes.toString((window as any).CryptoJS.enc.Utf8));
+      const bytes = window.CryptoJS.AES.decrypt(encryptedReal, masterPassword);
+      const decryptedData = JSON.parse(bytes.toString(window.CryptoJS.enc.Utf8));
       setActiveVaultMode('real'); setVaultData(decryptedData); setVaultUnlocked(true); setFailedAttempts(0); setShowUnlockWarning(true); return;
     } catch (e) {}
-    
     try {
-      const bytes = (window as any).CryptoJS.AES.decrypt(encryptedDecoy, masterPassword);
-      const decryptedData = JSON.parse(bytes.toString((window as any).CryptoJS.enc.Utf8));
+      const bytes = window.CryptoJS.AES.decrypt(encryptedDecoy, masterPassword);
+      const decryptedData = JSON.parse(bytes.toString(window.CryptoJS.enc.Utf8));
       setActiveVaultMode('decoy'); setVaultData(decryptedData); setVaultUnlocked(true); setFailedAttempts(0); return;
     } catch (e) {}
-    
     const newFails = failedAttempts + 1;
     setFailedAttempts(newFails);
     if (newFails >= 3) { captureIntruder(); } else { alert(`❌ Wrong password! Attempt ${newFails} of 3.`); }
     setMasterPassword('');
   };
-  
-  const saveVault = (data: VaultItem[]) => {
+
+  const saveVault = (data) => {
     const storageKey = activeVaultMode === 'decoy' ? 'secure_vault_decoy' : 'secure_vault_real';
-    const encrypted = (window as any).CryptoJS.AES.encrypt(JSON.stringify(data), masterPassword).toString();
+    const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(data), masterPassword).toString();
     localStorage.setItem(storageKey, encrypted);
     setVaultData(data);
   };
@@ -449,14 +380,14 @@ export default function PasswordBreachChecker() {
 
   const addToVault = () => {
     if (!newVaultItem.site || !newVaultItem.password) return alert('Fill site name and password!');
-    const newItem: VaultItem = { id: Date.now().toString(), ...newVaultItem, createdAt: new Date().toLocaleString(), favorite: false };
+    const newItem = { id: Date.now().toString(), ...newVaultItem, createdAt: new Date().toLocaleString(), favorite: false };
     saveVault([...vaultData, newItem]);
     setNewVaultItem({ site: '', username: '', password: '', category: 'Social', notes: '' });
   };
 
-  const deleteFromVault = (id: string) => { if (window.confirm('Are you sure you want to delete this password?')) { saveVault(vaultData.filter(item => item.id !== id)); } };
-  const toggleVaultPassword = (id: string) => setShowVaultPasswords(prev => ({ ...prev, [id]: !prev[id] }));
-  const toggleFavorite = (id: string) => { saveVault(vaultData.map(item => item.id === id ? { ...item, favorite: !item.favorite } : item)); };
+  const deleteFromVault = (id) => { if (window.confirm('Are you sure you want to delete this password?')) { saveVault(vaultData.filter(item => item.id !== id)); } };
+  const toggleVaultPassword = (id) => setShowVaultPasswords(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleFavorite = (id) => { saveVault(vaultData.map(item => item.id === id ? { ...item, favorite: !item.favorite } : item)); };
 
   const exportVault = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(vaultData, null, 2));
@@ -464,7 +395,6 @@ export default function PasswordBreachChecker() {
     dlAnchorElem.setAttribute("href", dataStr);
     dlAnchorElem.setAttribute("download", `PassGuard_Vault_Backup_${new Date().toISOString().split('T')[0]}.json`);
     dlAnchorElem.click();
-    
     const now = Date.now();
     setLastBackupReminder(now);
     localStorage.setItem('lastBackupReminder', now.toString());
@@ -478,16 +408,14 @@ export default function PasswordBreachChecker() {
     }
   };
 
-  const dismissWarning = () => {
-    setShowUnlockWarning(false);
-  };
+  const dismissWarning = () => { setShowUnlockWarning(false); };
 
   const filteredVault = vaultData.filter(item => vaultFilter === 'all' ? true : item.category === vaultFilter).sort((a, b) => a.favorite === b.favorite ? a.site.localeCompare(b.site) : (a.favorite ? -1 : 1));
 
-  const checkCommonPasswords = (pwd: string) => COMMON_PASSWORDS.includes(pwd.toLowerCase());
+  const checkCommonPasswords = (pwd) => COMMON_PASSWORDS.includes(pwd.toLowerCase());
 
-  const calculateStrength = (pwd: string) => {
-    const details: string[] = []; let score = 0;
+  const calculateStrength = (pwd) => {
+    const details = []; let score = 0;
     if (pwd.length >= 8) score += 1; if (pwd.length >= 12) score += 1; if (pwd.length >= 16) score += 1; if (pwd.length >= 20) score += 1;
     if (/[a-z]/.test(pwd)) score += 1; if (/[A-Z]/.test(pwd)) score += 1; if (/[0-9]/.test(pwd)) score += 1; if (/[^a-zA-Z0-9]/.test(pwd)) score += 2;
     if (checkCommonPasswords(pwd)) { score = 0; details.push('❌ Found in top 100 common passwords'); }
@@ -497,7 +425,7 @@ export default function PasswordBreachChecker() {
     if (detectLeetSpeak(pwd)) { score -= 1; details.push('⚠️ Contains leet speak substitutions'); }
     score = Math.max(0, score);
     let level = 'Very Weak', color = '#ef4444';
-    if (score >= 8) { level = 'Very Strong'; color = '#22c55e'; } else if (score >= 6) { level = 'Strong'; color = '#4ade80'; } else if (score >= 4) { level = 'Medium'; color = '#facc15'; } else if (score >= 2) { level = 'Weak'; color = '#fb923c'; }
+    if (score >= 8) { level = 'Very Strong'; color = '#22c55e'; } else if (score >= 6) { level = 'Strong'; color = '#4ade80'; } else if (score >= 4) { level = 'Medium'; color = '#f59e0b'; } else if (score >= 2) { level = 'Weak'; color = '#fb923c'; }
     return { score, level, color, details };
   };
 
@@ -505,9 +433,9 @@ export default function PasswordBreachChecker() {
   const entropy = password ? calculateEntropy(password) : 0;
   const crackTime = password ? estimateCrackTime(entropy) : null;
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') checkPassword(); };
+  const handleKeyPress = (e) => { if (e.key === 'Enter') checkPassword(); };
   const handleGenerate = () => { const pwd = generatePassword(generatorOptions.length, generatorOptions); setGeneratedPassword(pwd); };
-  const copyToClipboard = async (text: string) => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (err) { console.error('Failed to copy'); } };
+  const copyToClipboard = async (text) => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (err) { console.error('Failed to copy'); } };
 
   const checkPassword = async () => {
     if (!password) return;
@@ -534,173 +462,176 @@ export default function PasswordBreachChecker() {
   const handleScanUrl = () => {
     if (!urlToScan) return;
     setIsScanningUrl(true); setUrlResult(null);
-    setTimeout(() => {
-      setUrlResult(analyzeUrl(urlToScan));
-      setIsScanningUrl(false);
-    }, 1500); 
+    setTimeout(() => { setUrlResult(analyzeUrl(urlToScan)); setIsScanningUrl(false); }, 1500);
   };
 
+  const tabs = [
+    { id: 'checker', label: 'Check', icon: '🔍' },
+    { id: 'generator', label: 'Generate', icon: '⚡' },
+    { id: 'vault', label: 'Vault', icon: '🔐' },
+    { id: 'urlScanner', label: 'Link Scan', icon: '🔗' },
+    { id: 'history', label: 'History', icon: '📜' },
+  ];
+
   return (
-    <div className="min-h-screen bg-[#f5f0e8] p-4 md:p-8 font-sans relative">
-      
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f0f4ff 0%, #fafafa 40%, #f5f0ff 100%)', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif', position: 'relative' }}>
+      <style>{`
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+        .mac-card { background: rgba(255,255,255,0.72); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255,255,255,0.9); border-radius: 16px; box-shadow: 0 2px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.8); }
+        .mac-input { background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; outline: none; transition: all 0.2s; color: #1d1d1f; font-family: inherit; font-size: 15px; }
+        .mac-input:focus { border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,0.15); background: #fff; }
+        .mac-btn-primary { background: linear-gradient(180deg, #0077ed 0%, #0062cc 100%); color: #fff; border: none; border-radius: 10px; font-family: inherit; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2); }
+        .mac-btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #0082ff 0%, #006ee0 100%); transform: translateY(-0.5px); box-shadow: 0 3px 10px rgba(0,100,220,0.3); }
+        .mac-btn-primary:active:not(:disabled) { transform: translateY(0); }
+        .mac-btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+        .mac-tab { background: transparent; border: none; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.18s; color: #6e6e73; display: flex; align-items: center; gap: 5px; padding: 7px 14px; }
+        .mac-tab:hover { background: rgba(0,0,0,0.05); color: #1d1d1f; }
+        .mac-tab.active { background: #fff; color: #0071e3; box-shadow: 0 1px 4px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08); font-weight: 600; }
+        .mac-pill { border-radius: 20px; font-size: 12px; font-weight: 600; padding: 3px 10px; }
+        .mac-secondary-btn { background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.08); border-radius: 8px; color: #1d1d1f; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; padding: 7px 14px; }
+        .mac-secondary-btn:hover { background: rgba(0,0,0,0.09); }
+        .mac-danger-btn { background: rgba(255,59,48,0.1); border: 1px solid rgba(255,59,48,0.2); border-radius: 8px; color: #ff3b30; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; padding: 7px 14px; }
+        .mac-danger-btn:hover { background: rgba(255,59,48,0.18); }
+        .mac-success-btn { background: rgba(52,199,89,0.1); border: 1px solid rgba(52,199,89,0.25); border-radius: 8px; color: #34c759; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; padding: 7px 14px; }
+        .mac-success-btn:hover { background: rgba(52,199,89,0.18); }
+        .slider-mac { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px; background: linear-gradient(to right, #0071e3 0%, #0071e3 var(--val,50%), #d1d1d6 var(--val,50%), #d1d1d6 100%); outline: none; }
+        .slider-mac::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 1px solid rgba(0,0,0,0.18); box-shadow: 0 2px 6px rgba(0,0,0,0.15); cursor: pointer; transition: transform 0.1s; }
+        .slider-mac::-webkit-slider-thumb:hover { transform: scale(1.1); }
+        .fade-in { animation: fadeUp 0.25s ease-out; }
+        @keyframes fadeUp { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+        .traffic-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+        .checkbox-mac { width: 16px; height: 16px; accent-color: #0071e3; cursor: pointer; }
+        .select-mac { background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 10px 14px; font-family: inherit; font-size: 14px; color: #1d1d1f; outline: none; width: 100%; cursor: pointer; }
+        .select-mac:focus { border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,0.15); }
+        .vault-item { background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.07); border-radius: 12px; transition: all 0.2s; }
+        .vault-item:hover { background: rgba(255,255,255,0.9); box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+        .icon-btn { background: transparent; border: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; font-size: 15px; transition: background 0.15s; }
+        .icon-btn:hover { background: rgba(0,0,0,0.06); }
+        .icon-btn-danger:hover { background: rgba(255,59,48,0.1); }
+      `}</style>
+
+      {/* macOS-style background blobs */}
+      <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '500px', height: '500px', background: 'radial-gradient(circle, rgba(0,113,227,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
+        <div style={{ position: 'absolute', bottom: '-100px', right: '-100px', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(175,82,222,0.07) 0%, transparent 70%)', borderRadius: '50%' }} />
+        <div style={{ position: 'absolute', top: '40%', left: '30%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(52,199,89,0.05) 0%, transparent 70%)', borderRadius: '50%' }} />
+      </div>
+
       {/* 🚨 INTRUDER RED OVERLAY */}
       {intruderAlert && (
-        <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex flex-col items-center justify-center text-white animate-pulse">
-          <h1 className="text-4xl md:text-6xl font-black mb-4 tracking-widest text-center">🚨 INTRUDER DETECTED 🚨</h1>
-          <p className="text-lg md:text-xl mb-8 text-red-200 text-center px-4">UNAUTHORIZED ACCESS ATTEMPT HAS BEEN LOGGED SECURELY.</p>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(180,0,0,0.96)', backdropFilter: 'blur(12px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+          <div style={{ fontSize: '3rem', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '12px', textAlign: 'center' }}>🚨 INTRUDER DETECTED 🚨</div>
+          <p style={{ fontSize: '1rem', marginBottom: '28px', color: 'rgba(255,200,200,1)', textAlign: 'center', maxWidth: '400px' }}>UNAUTHORIZED ACCESS ATTEMPT HAS BEEN LOGGED SECURELY.</p>
           {intruderAlert !== 'CAMERA_DENIED' ? (
-            <img src={intruderAlert} alt="Intruder" className="w-80 h-60 object-cover border-4 border-white rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.8)]" />
+            <img src={intruderAlert} alt="Intruder" style={{ width: '280px', height: '210px', objectFit: 'cover', border: '3px solid #fff', borderRadius: '12px', boxShadow: '0 0 40px rgba(255,0,0,0.6)' }} />
           ) : (
-            <div className="w-80 h-60 bg-gray-800 flex items-center justify-center border-4 border-white rounded-xl text-center p-4">
+            <div style={{ width: '280px', height: '210px', background: 'rgba(255,255,255,0.1)', border: '3px solid #fff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '16px', fontSize: '14px' }}>
               CAMERA ACCESS DENIED. TIMESTAMP & IP LOGGED.
             </div>
           )}
-          <button onClick={() => {setIntruderAlert(null); setFailedAttempts(0);}} className="mt-8 px-8 py-3 bg-white text-red-900 font-bold rounded-xl hover:bg-gray-100 transition-colors shadow-lg">
+          <button onClick={() => { setIntruderAlert(null); setFailedAttempts(0); }} style={{ marginTop: '28px', padding: '12px 28px', background: '#fff', color: '#b00000', fontWeight: 700, border: 'none', borderRadius: '10px', fontSize: '15px', cursor: 'pointer' }}>
             Dismiss & Reset Interface
           </button>
         </div>
       )}
 
-      {/* 🚨 SECURITY WARNING MODAL */}
+      {/* SECURITY WARNING MODAL */}
       {showUnlockWarning && vaultUnlocked && (
-        <div className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border-2 border-yellow-400">
-            <div className="text-center">
-              <div className="text-5xl mb-4">⚠️</div>
-              <h2 className="text-2xl font-bold text-[#5c4a32] mb-4">🔐 Important Security Notice</h2>
-              
-              <div className="text-left bg-yellow-50 p-4 rounded-xl mb-4 space-y-3 text-sm">
-                <p className="font-bold text-red-700">🚨 CRITICAL RULES:</p>
-                <p>❌ <strong>NEVER</strong> clear browser data while vault is in use!</p>
-                <p>❌ <strong>NEVER</strong> use Incognito/Private mode!</p>
-                <p>❌ <strong>NEVER</strong> share your Master Password!</p>
-                <p>🔒 Auto-lock activates after 5 minutes of inactivity</p>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="mac-card" style={{ maxWidth: '420px', width: '100%', padding: '28px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '10px' }}>⚠️</div>
+              <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#1d1d1f', marginBottom: '16px' }}>🔐 Important Security Notice</h2>
+              <div style={{ background: 'rgba(255,204,0,0.1)', border: '1px solid rgba(255,204,0,0.3)', borderRadius: '10px', padding: '14px', marginBottom: '12px', textAlign: 'left' }}>
+                <p style={{ fontWeight: 700, color: '#b45309', marginBottom: '8px', fontSize: '13px' }}>🚨 CRITICAL RULES:</p>
+                <p style={{ fontSize: '13px', color: '#78350f', marginBottom: '5px' }}>❌ <strong>NEVER</strong> clear browser data while vault is in use!</p>
+                <p style={{ fontSize: '13px', color: '#78350f', marginBottom: '5px' }}>❌ <strong>NEVER</strong> use Incognito/Private mode!</p>
+                <p style={{ fontSize: '13px', color: '#78350f', marginBottom: '5px' }}>❌ <strong>NEVER</strong> share your Master Password!</p>
+                <p style={{ fontSize: '13px', color: '#78350f' }}>🔒 Auto-lock activates after 5 minutes of inactivity</p>
               </div>
-
-              <div className="text-left bg-blue-50 p-4 rounded-xl mb-4 space-y-2 text-sm">
-                <p className="font-bold text-blue-700">💾 BACKUP REMINDER:</p>
-                <p>Export your vault regularly as JSON backup!</p>
-                <p>Keep backup files in a <strong>SECURE</strong> location!</p>
-                <p>If you forget Master Password, data <strong>CANNOT</strong> be recovered!</p>
+              <div style={{ background: 'rgba(0,113,227,0.07)', border: '1px solid rgba(0,113,227,0.15)', borderRadius: '10px', padding: '14px', marginBottom: '18px', textAlign: 'left' }}>
+                <p style={{ fontWeight: 700, color: '#0055b3', marginBottom: '8px', fontSize: '13px' }}>💾 BACKUP REMINDER:</p>
+                <p style={{ fontSize: '13px', color: '#0055b3', marginBottom: '5px' }}>Export your vault regularly as JSON backup!</p>
+                <p style={{ fontSize: '13px', color: '#0055b3', marginBottom: '5px' }}>Keep backup files in a <strong>SECURE</strong> location!</p>
+                <p style={{ fontSize: '13px', color: '#0055b3' }}>If you forget Master Password, data <strong>CANNOT</strong> be recovered!</p>
               </div>
-
-              <div className="flex gap-3">
-                <button onClick={exportVault} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold hover:bg-green-600 transition-colors">
-                  📤 Export Backup Now
-                </button>
-                <button onClick={dismissWarning} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-colors">
-                  Later
-                </button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={exportVault} className="mac-btn-primary" style={{ flex: 1, padding: '12px', fontSize: '14px' }}>📤 Export Backup Now</button>
+                <button onClick={dismissWarning} className="mac-secondary-btn" style={{ flex: 1 }}>Later</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      <video ref={videoRef} className="hidden" />
-      <canvas ref={canvasRef} width="320" height="240" className="hidden" />
+      <video ref={videoRef} style={{ display: 'none' }} />
+      <canvas ref={canvasRef} width="320" height="240" style={{ display: 'none' }} />
 
-      {/* Animated Background */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-[#d4c4a8] rounded-full opacity-40 blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-[#c9b896] rounded-full opacity-40 blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-        <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-[#e8dcc8] rounded-full opacity-30 blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
-      </div>
-
-      <div className="max-w-4xl mx-auto relative z-10">
-        {/* Header */}
-        <header className="text-center mb-8">
-          <h1 className="text-4xl md:text-5xl font-bold text-[#5c4a32] mb-2">
-            Password Security Hub
-          </h1>
-          <p className="text-[#8b7355] text-lg">Check, Generate, Scan & Protect Your Digital Life</p>
-        </header>
-
-        {/* Tab Navigation */}
-        <div className="flex justify-center gap-3 mb-8 flex-wrap">
-          {[
-            { id: 'checker', label: '🔍 Check' },
-            { id: 'generator', label: '⚡ Generate' },
-            { id: 'vault', label: '🔐 Vault' },
-            { id: 'urlScanner', label: '🔗 Link Scan' },
-            { id: 'history', label: '📜 History' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`px-5 py-3 rounded-xl font-medium transition-all duration-300 ${
-                activeTab === tab.id
-                  ? 'bg-[#5c4a32] text-white shadow-lg transform scale-105'
-                  : 'bg-white/60 text-[#5c4a32] hover:bg-white/80'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      <div style={{ maxWidth: '820px', margin: '0 auto', padding: '32px 20px 48px', position: 'relative', zIndex: 1 }}>
+        
+        {/* macOS Window Header dots */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '7px', marginBottom: '24px' }}>
+          <span className="traffic-dot" style={{ background: '#ff5f57' }} />
+          <span className="traffic-dot" style={{ background: '#ffbd2e' }} />
+          <span className="traffic-dot" style={{ background: '#28c840' }} />
         </div>
 
-        {/* 🔗 URL SCANNER TAB */}
-        {activeTab === 'urlScanner' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-              <h3 className="text-xl font-bold text-[#5c4a32] mb-2 flex items-center gap-2">🔗 Deep Threat URL Scanner</h3>
-              <p className="text-[#8b7355] mb-6 text-sm">Our heuristic AI engine analyzes Domain Entropy, Typosquatting, and Social Engineering patterns.</p>
+        {/* Header */}
+        <header style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h1 style={{ fontSize: '2.6rem', fontWeight: 700, color: '#1d1d1f', letterSpacing: '-0.03em', marginBottom: '8px', lineHeight: 1.1 }}>
+            Password Security Hub
+          </h1>
+          <p style={{ color: '#6e6e73', fontSize: '16px', fontWeight: 400 }}>Check, Generate, Scan & Protect Your Digital Life</p>
+        </header>
 
-              <div className="relative mb-4">
-                <input 
-                  type="text" 
-                  value={urlToScan} 
-                  onChange={(e) => setUrlToScan(e.target.value)} 
-                  onKeyPress={(e) => e.key === 'Enter' && handleScanUrl()} 
-                  placeholder="Paste a link... (e.g., http://login-hdfc-8a7b6c.xyz)" 
-                  className="w-full px-5 py-4 text-lg bg-[#faf8f5] border-2 border-[#d4c4a8] rounded-xl focus:border-[#8b6914] focus:outline-none transition-colors text-[#5c4a32] placeholder-[#a89070]" 
-                />
-              </div>
-              
-              <button 
-                onClick={handleScanUrl} 
-                disabled={!urlToScan || isScanningUrl} 
-                className="w-full bg-gradient-to-r from-[#8b6914] to-[#5c4a32] text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg hover:scale-[1.02] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
-              >
-                {isScanningUrl ? (
-                  <>
-                    <span className="animate-spin text-2xl">⏳</span> Analyzing Heuristics...
-                  </>
-                ) : 'Perform Deep Scan 🕵️‍♂️'}
+        {/* Tab Bar - macOS segmented style */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '28px' }}>
+          <div style={{ background: 'rgba(0,0,0,0.06)', borderRadius: '12px', padding: '4px', display: 'flex', gap: '2px' }}>
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`mac-tab ${activeTab === tab.id ? 'active' : ''}`}>
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ===== URL SCANNER ===== */}
+        {activeTab === 'urlScanner' && (
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="mac-card" style={{ padding: '24px' }}>
+              <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#1d1d1f', marginBottom: '6px' }}>🔗 Deep Threat URL Scanner</h3>
+              <p style={{ color: '#6e6e73', fontSize: '13px', marginBottom: '20px' }}>Our heuristic AI engine analyzes Domain Entropy, Typosquatting, and Social Engineering patterns.</p>
+              <input type="text" value={urlToScan} onChange={e => setUrlToScan(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleScanUrl()} placeholder="Paste a link... (e.g., http://login-hdfc-8a7b6c.xyz)" className="mac-input" style={{ width: '100%', padding: '12px 16px', marginBottom: '12px' }} />
+              <button onClick={handleScanUrl} disabled={!urlToScan || isScanningUrl} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>
+                {isScanningUrl ? '⏳ Analyzing Heuristics...' : 'Perform Deep Scan 🕵️‍♂️'}
               </button>
             </div>
-
             {urlResult && (
-              <div className={`bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border-2 animate-fade-in ${urlResult.isSafe ? 'border-[#22c55e] bg-green-50/50' : 'border-[#ef4444] bg-red-50/50'}`}>
-                <div className="flex items-start gap-4">
-                  <div className="text-5xl">{urlResult.isSafe ? '✅' : '🚨'}</div>
-                  <div className="w-full">
-                    <div className="flex justify-between items-center mb-1">
-                      <h3 className={`text-2xl font-bold ${urlResult.isSafe ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+              <div className={`mac-card fade-in`} style={{ padding: '24px', borderColor: urlResult.isSafe ? 'rgba(52,199,89,0.3)' : 'rgba(255,59,48,0.3)', background: urlResult.isSafe ? 'rgba(52,199,89,0.05)' : 'rgba(255,59,48,0.05)' }}>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                  <div style={{ fontSize: '2.5rem' }}>{urlResult.isSafe ? '✅' : '🚨'}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 700, color: urlResult.isSafe ? '#34c759' : '#ff3b30' }}>
                         {urlResult.isSafe ? 'URL Looks Safe!' : 'MALICIOUS THREAT DETECTED!'}
                       </h3>
-                      <div className="text-right">
-                        <span className="text-xs text-[#8b7355] font-bold uppercase tracking-widest">Threat Score</span>
-                        <div className={`text-2xl font-black ${urlResult.isSafe ? 'text-green-600' : 'text-red-600'}`}>
-                          {urlResult.score}%
-                        </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '11px', color: '#6e6e73', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Threat Score</div>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: urlResult.isSafe ? '#34c759' : '#ff3b30' }}>{urlResult.score}%</div>
                       </div>
                     </div>
-                    
-                    <div className="h-2 w-full bg-gray-200 rounded-full mt-2 mb-4 overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-1000 ${urlResult.isSafe ? 'bg-green-500' : 'bg-red-500'}`} 
-                        style={{width: `${urlResult.score}%`}}
-                      ></div>
+                    <div style={{ height: '5px', background: 'rgba(0,0,0,0.08)', borderRadius: '3px', marginBottom: '16px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${urlResult.score}%`, background: urlResult.isSafe ? '#34c759' : '#ff3b30', borderRadius: '3px', transition: 'width 0.8s ease' }} />
                     </div>
-
-                    <div className="mt-4 p-4 bg-white/50 rounded-xl border border-[#d4c4a8]">
-                      <span className="text-xs font-bold uppercase tracking-wider text-[#8b6914]">Heuristic Engine Logs:</span>
-                      <ul className="list-disc list-inside mt-2 space-y-2 text-[#5c4a32] text-sm">
-                        {urlResult.reasons.map((reason: string, idx: number) => (
-                          <li key={idx} className={!urlResult.isSafe ? "text-[#b91c1c] font-medium" : "text-[#15803d]"}>
-                            {reason}
-                          </li>
+                    <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '10px', border: '1px solid rgba(0,0,0,0.07)', padding: '14px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#6e6e73', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Heuristic Engine Logs</div>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                        {urlResult.reasons.map((reason, idx) => (
+                          <li key={idx} style={{ fontSize: '13px', color: urlResult.isSafe ? '#1a7340' : '#c0392b', fontWeight: 500 }}>{reason}</li>
                         ))}
                       </ul>
                     </div>
@@ -711,345 +642,257 @@ export default function PasswordBreachChecker() {
           </div>
         )}
 
-        {/* 🔍 CHECKER TAB */}
+        {/* ===== CHECKER ===== */}
         {activeTab === 'checker' && (
-          <div className="space-y-6">
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-              <label className="block text-[#5c4a32] font-semibold mb-3 text-lg">Enter Password to Check 🔐</label>
-              <div className="relative">
-                <input 
-                  type={showPassword ? 'text' : 'password'} 
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)} 
-                  onKeyPress={handleKeyPress} 
-                  placeholder="Type your password here..." 
-                  className="w-full px-5 py-4 pr-14 text-lg bg-[#faf8f5] border-2 border-[#d4c4a8] rounded-xl focus:border-[#8b6914] focus:outline-none transition-colors text-[#5c4a32] placeholder-[#a89070]" 
-                />
-                <button onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#8b7355] hover:text-[#5c4a32] text-2xl">
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="mac-card" style={{ padding: '24px' }}>
+              <label style={{ display: 'block', color: '#1d1d1f', fontWeight: 600, marginBottom: '10px', fontSize: '15px' }}>Enter Password to Check 🔐</label>
+              <div style={{ position: 'relative', marginBottom: '14px' }}>
+                <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} onKeyPress={handleKeyPress} placeholder="Type your password here..." className="mac-input" style={{ width: '100%', padding: '13px 46px 13px 16px' }} />
+                <button onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '18px' }}>
                   {showPassword ? '🙈' : '👁️'}
                 </button>
               </div>
-              <button onClick={checkPassword} disabled={!password || loading} className="w-full mt-4 bg-gradient-to-r from-[#8b6914] to-[#5c4a32] text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg hover:scale-[1.02] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                {loading ? (
-                  <span className="flex items-center justify-center gap-3">
-                    <span className="animate-spin text-2xl">⏳</span> Checking...
-                  </span>
-                ) : 'Check for Breaches 🚀'}
+              <button onClick={checkPassword} disabled={!password || loading} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>
+                {loading ? '⏳ Checking...' : 'Check for Breaches 🚀'}
               </button>
             </div>
 
             {(breachCount !== null || error) && (
-              <div className={`bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border-2 animate-fade-in ${breachCount === 0 ? 'border-[#22c55e] bg-green-50/50' : breachCount !== null ? 'border-[#ef4444] bg-red-50/50' : 'border-[#facc15] bg-yellow-50/50'}`}>
+              <div className={`mac-card fade-in`} style={{ padding: '24px', borderColor: breachCount === 0 ? 'rgba(52,199,89,0.3)' : breachCount !== null ? 'rgba(255,59,48,0.3)' : 'rgba(255,159,10,0.3)', background: breachCount === 0 ? 'rgba(52,199,89,0.05)' : breachCount !== null ? 'rgba(255,59,48,0.05)' : 'rgba(255,159,10,0.05)' }}>
                 {error ? (
-                  <div className="text-center">
-                    <div className="text-5xl mb-4">⚠️</div>
-                    <h3 className="text-2xl font-bold text-[#ca8a04] mb-2">Connection Error</h3>
-                    <p className="text-[#8b7355]">{error}</p>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '10px' }}>⚠️</div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#ff9500', marginBottom: '6px' }}>Connection Error</h3>
+                    <p style={{ color: '#6e6e73' }}>{error}</p>
                   </div>
                 ) : breachCount === 0 ? (
-                  <div className="text-center">
-                    <div className="text-6xl mb-4">✅</div>
-                    <h3 className="text-2xl font-bold text-[#22c55e] mb-2">Good News! 🎉</h3>
-                    <p className="text-[#5c4a32] text-lg">
-                      This password has <span className="font-bold text-[#22c55e]">NOT</span> been found in any known data breaches!
-                    </p>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '3.5rem', marginBottom: '10px' }}>✅</div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#34c759', marginBottom: '6px' }}>Good News! 🎉</h3>
+                    <p style={{ color: '#1d1d1f', fontSize: '15px' }}>This password has <strong style={{ color: '#34c759' }}>NOT</strong> been found in any known data breaches!</p>
                   </div>
                 ) : (
-                  <div className="text-center">
-                    <div className="text-6xl mb-4">🚨</div>
-                    <h3 className="text-2xl font-bold text-[#ef4444] mb-2">Password Compromised!</h3>
-                    <p className="text-[#5c4a32] text-lg">
-                      Found in <span className="font-bold text-[#ef4444] text-3xl">{breachCount?.toLocaleString()}</span> data breaches!
-                    </p>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '3.5rem', marginBottom: '10px' }}>🚨</div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#ff3b30', marginBottom: '6px' }}>Password Compromised!</h3>
+                    <p style={{ color: '#1d1d1f', fontSize: '15px' }}>Found in <strong style={{ color: '#ff3b30', fontSize: '26px' }}>{breachCount?.toLocaleString()}</strong> data breaches!</p>
                   </div>
                 )}
               </div>
             )}
 
             {password && strength && (
-              <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-                <h3 className="text-xl font-bold text-[#5c4a32] mb-4 flex items-center gap-2">📊 Password Strength Analysis</h3>
-                <div className="mb-6">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-[#8b7355]">Strength Level</span>
-                    <span className="font-bold" style={{ color: strength.color }}>{strength.level}</span>
+              <div className="mac-card" style={{ padding: '24px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d1d1f', marginBottom: '18px' }}>📊 Password Strength Analysis</h3>
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ color: '#6e6e73', fontSize: '14px' }}>Strength Level</span>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: strength.color }}>{strength.level}</span>
                   </div>
-                  <div className="h-4 bg-[#e8dcc8] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(strength.score / 10) * 100}%`, backgroundColor: strength.color }}></div>
+                  <div style={{ height: '6px', background: 'rgba(0,0,0,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${(strength.score / 10) * 100}%`, background: strength.color, borderRadius: '3px', transition: 'width 0.5s ease' }} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-[#faf8f5] p-4 rounded-xl text-center">
-                    <div className="text-3xl font-bold text-[#5c4a32]">{password.length}</div>
-                    <div className="text-[#8b7355] text-sm">Characters</div>
-                  </div>
-                  <div className="bg-[#faf8f5] p-4 rounded-xl text-center">
-                    <div className="text-3xl font-bold text-[#5c4a32]">{entropy}</div>
-                    <div className="text-[#8b7355] text-sm">Entropy (bits)</div>
-                  </div>
-                  <div className="bg-[#faf8f5] p-4 rounded-xl text-center">
-                    <div className="text-3xl font-bold text-[#5c4a32]">{crackTime?.text}</div>
-                    <div className="text-[#8b7355] text-sm">Time to Crack</div>
-                  </div>
-                  <div className="bg-[#faf8f5] p-4 rounded-xl text-center">
-                    <div className="text-3xl font-bold text-[#5c4a32]">{strength.score}/10</div>
-                    <div className="text-[#8b7355] text-sm">Score</div>
-                  </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '18px' }}>
+                  {[
+                    { val: password.length, label: 'Characters' },
+                    { val: entropy, label: 'Entropy (bits)' },
+                    { val: crackTime?.text, label: 'Time to Crack' },
+                    { val: `${strength.score}/10`, label: 'Score' }
+                  ].map((stat, i) => (
+                    <div key={i} style={{ background: 'rgba(0,0,0,0.03)', borderRadius: '10px', padding: '14px 10px', textAlign: 'center', border: '1px solid rgba(0,0,0,0.05)' }}>
+                      <div style={{ fontSize: i === 2 ? '13px' : '22px', fontWeight: 700, color: '#1d1d1f', marginBottom: '4px' }}>{stat.val}</div>
+                      <div style={{ fontSize: '11px', color: '#6e6e73' }}>{stat.label}</div>
+                    </div>
+                  ))}
                 </div>
                 {strength.details.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-[#5c4a32]">⚠️ Issues Found:</h4>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#1d1d1f', marginBottom: '8px' }}>⚠️ Issues Found:</div>
                     {strength.details.map((detail, i) => (
-                      <div key={i} className="bg-red-50/50 p-3 rounded-lg text-[#b91c1c] text-sm">{detail}</div>
+                      <div key={i} style={{ background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.15)', borderRadius: '8px', padding: '10px 12px', color: '#c0392b', fontSize: '13px', marginBottom: '6px' }}>{detail}</div>
                     ))}
                   </div>
                 )}
               </div>
             )}
 
-            <div className="bg-white/50 backdrop-blur rounded-xl p-4 border border-[#e8dcc8]">
-              <h4 className="font-semibold text-[#5c4a32] mb-2 flex items-center gap-2">🔒 Privacy Protection</h4>
-              <p className="text-[#8b7355] text-sm">
-                Your password is <strong>never sent</strong> to any server. We use <strong>k-Anonymity</strong> - 
-                only the first 5 characters of your password's SHA-1 hash are sent to the API. 
-                The check happens entirely in your browser!
+            <div className="mac-card" style={{ padding: '16px 20px' }}>
+              <h4 style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: '6px', fontSize: '14px' }}>🔒 Privacy Protection</h4>
+              <p style={{ color: '#6e6e73', fontSize: '13px', lineHeight: 1.5 }}>
+                Your password is <strong>never sent</strong> to any server. We use <strong>k-Anonymity</strong> — only the first 5 characters of your password's SHA-1 hash are sent to the API. The check happens entirely in your browser!
               </p>
             </div>
           </div>
         )}
 
-        {/* ⚡ GENERATOR TAB */}
+        {/* ===== GENERATOR ===== */}
         {activeTab === 'generator' && (
-          <div className="space-y-6">
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-              <h3 className="text-xl font-bold text-[#5c4a32] mb-6 flex items-center gap-2">⚡ Password Generator</h3>
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-[#5c4a32] mb-2">
-                    Password Length: <span className="font-bold text-[#8b6914]">{generatorOptions.length}</span>
-                  </label>
-                  <input 
-                    type="range" 
-                    min="8" 
-                    max="64" 
-                    value={generatorOptions.length} 
-                    onChange={(e) => setGeneratorOptions({...generatorOptions, length: parseInt(e.target.value)})} 
-                    className="w-full h-2 bg-[#d4c4a8] rounded-lg appearance-none cursor-pointer accent-[#8b6914]" 
-                  />
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer bg-[#faf8f5] p-3 rounded-xl hover:bg-[#e8dcc8] transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={generatorOptions.uppercase} 
-                      onChange={(e) => setGeneratorOptions({...generatorOptions, uppercase: e.target.checked})} 
-                      className="w-5 h-5 accent-[#8b6914]" 
-                    />
-                    <span className="text-[#5c4a32]">ABC Uppercase</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer bg-[#faf8f5] p-3 rounded-xl hover:bg-[#e8dcc8] transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={generatorOptions.lowercase} 
-                      onChange={(e) => setGeneratorOptions({...generatorOptions, lowercase: e.target.checked})} 
-                      className="w-5 h-5 accent-[#8b6914]" 
-                    />
-                    <span className="text-[#5c4a32]">abc Lowercase</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer bg-[#faf8f5] p-3 rounded-xl hover:bg-[#e8dcc8] transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={generatorOptions.numbers} 
-                      onChange={(e) => setGeneratorOptions({...generatorOptions, numbers: e.target.checked})} 
-                      className="w-5 h-5 accent-[#8b6914]" 
-                    />
-                    <span className="text-[#5c4a32]">123 Numbers</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer bg-[#faf8f5] p-3 rounded-xl hover:bg-[#e8dcc8] transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={generatorOptions.symbols} 
-                      onChange={(e) => setGeneratorOptions({...generatorOptions, symbols: e.target.checked})} 
-                      className="w-5 h-5 accent-[#8b6914]" 
-                    />
-                    <span className="text-[#5c4a32]">!@# Symbols</span>
-                  </label>
-                </div>
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="mac-card" style={{ padding: '24px' }}>
+              <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#1d1d1f', marginBottom: '20px' }}>⚡ Password Generator</h3>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', color: '#1d1d1f', fontSize: '14px', marginBottom: '10px' }}>
+                  Password Length: <strong style={{ color: '#0071e3' }}>{generatorOptions.length}</strong>
+                </label>
+                <input type="range" min="8" max="64" value={generatorOptions.length}
+                  onChange={e => setGeneratorOptions({ ...generatorOptions, length: parseInt(e.target.value) })}
+                  className="slider-mac"
+                  style={{ '--val': `${((generatorOptions.length - 8) / 56) * 100}%` }}
+                />
               </div>
-              <button onClick={handleGenerate} className="w-full bg-gradient-to-r from-[#8b6914] to-[#5c4a32] text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg hover:scale-[1.02] transition-all duration-300">
-                Generate Password 🎲
-              </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '20px' }}>
+                {[
+                  { key: 'uppercase', label: 'ABC Uppercase' },
+                  { key: 'lowercase', label: 'abc Lowercase' },
+                  { key: 'numbers', label: '123 Numbers' },
+                  { key: 'symbols', label: '!@# Symbols' },
+                ].map(opt => (
+                  <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.06)', borderRadius: '10px', padding: '12px 14px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={generatorOptions[opt.key]} onChange={e => setGeneratorOptions({ ...generatorOptions, [opt.key]: e.target.checked })} className="checkbox-mac" />
+                    <span style={{ color: '#1d1d1f', fontSize: '14px', fontWeight: 500 }}>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              <button onClick={handleGenerate} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>Generate Password 🎲</button>
               {generatedPassword && (
-                <div className="mt-6 p-4 bg-[#faf8f5] rounded-xl border-2 border-[#8b6914]">
-                  <div className="flex items-center gap-3">
-                    <code className="flex-1 text-[#5c4a32] text-lg font-mono break-all">{generatedPassword}</code>
-                    <button onClick={() => copyToClipboard(generatedPassword)} className="px-4 py-2 bg-[#8b6914] text-white rounded-lg hover:bg-[#5c4a32]">
-                      {copied ? '✅ Copied!' : '📋 Copy'}
-                    </button>
-                  </div>
+                <div style={{ marginTop: '16px', padding: '14px 16px', background: 'rgba(0,113,227,0.05)', border: '1px solid rgba(0,113,227,0.2)', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <code style={{ flex: 1, color: '#1d1d1f', fontSize: '15px', fontFamily: '"SF Mono", "Fira Code", monospace', wordBreak: 'break-all' }}>{generatedPassword}</code>
+                  <button onClick={() => copyToClipboard(generatedPassword)} className="mac-secondary-btn" style={{ whiteSpace: 'nowrap' }}>
+                    {copied ? '✅ Copied!' : '📋 Copy'}
+                  </button>
                 </div>
               )}
             </div>
-
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-              <h3 className="text-xl font-bold text-[#5c4a32] mb-4">🛡️ Why Strong Passwords Matter?</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="p-4 bg-[#f0f7e6] rounded-xl">
-                  <h4 className="font-bold text-[#5c4a32] mb-2">🔓 Brute Force Attacks</h4>
-                  <p className="text-[#6b7a5a] text-sm">Hackers use powerful computers to try billions of password combinations per second. Strong passwords can take centuries to crack!</p>
-                </div>
-                <div className="p-4 bg-[#f0f7e6] rounded-xl">
-                  <h4 className="font-bold text-[#5c4a32] mb-2">📧 Data Breaches</h4>
-                  <p className="text-[#6b7a5a] text-sm">Billions of passwords have been leaked in data breaches. Using unique passwords prevents hackers from accessing all your accounts at once.</p>
-                </div>
-                <div className="p-4 bg-[#f0f7e6] rounded-xl">
-                  <h4 className="font-bold text-[#5c4a32] mb-2">🔑 Credential Stuffing</h4>
-                  <p className="text-[#6b7a5a] text-sm">Hackers use leaked passwords from one site to try on other sites. Using different passwords for each account stops this attack.</p>
-                </div>
-                <div className="p-4 bg-[#f0f7e6] rounded-xl">
-                  <h4 className="font-bold text-[#5c4a32] mb-2">💼 Password Managers</h4>
-                  <p className="text-[#6b7a5a] text-sm">Use a password manager to generate and store unique passwords for all your accounts. You only need to remember one master password!</p>
-                </div>
+            <div className="mac-card" style={{ padding: '24px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>🛡️ Why Strong Passwords Matter?</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                {[
+                  { icon: '🔓', title: 'Brute Force Attacks', desc: 'Hackers use powerful computers to try billions of password combinations per second. Strong passwords can take centuries to crack!' },
+                  { icon: '📧', title: 'Data Breaches', desc: 'Billions of passwords have been leaked in data breaches. Using unique passwords prevents hackers from accessing all your accounts at once.' },
+                  { icon: '🔑', title: 'Credential Stuffing', desc: 'Hackers use leaked passwords from one site to try on other sites. Using different passwords for each account stops this attack.' },
+                  { icon: '💼', title: 'Password Managers', desc: 'Use a password manager to generate and store unique passwords for all your accounts. You only need to remember one master password!' },
+                ].map((card, i) => (
+                  <div key={i} style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.06)', borderRadius: '12px', padding: '16px' }}>
+                    <div style={{ fontSize: '20px', marginBottom: '6px' }}>{card.icon}</div>
+                    <div style={{ fontWeight: 600, color: '#1d1d1f', fontSize: '14px', marginBottom: '6px' }}>{card.title}</div>
+                    <div style={{ fontSize: '13px', color: '#6e6e73', lineHeight: 1.5 }}>{card.desc}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         )}
 
-        {/* 🔐 VAULT TAB */}
+        {/* ===== VAULT ===== */}
         {activeTab === 'vault' && (
-          <div className="space-y-6">
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {!vaultUnlocked ? (
-              <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-8 shadow-xl border-2 border-[#e8dcc8]">
+              <div className="mac-card" style={{ padding: '32px' }}>
                 {needsSetup ? (
-                  <div className="text-center">
-                    <div className="text-5xl mb-4">🔐</div>
-                    <h3 className="text-2xl font-bold text-[#5c4a32] mb-2">Setup Secure Vault</h3>
-                    <p className="text-[#8b7355] mb-6">
-                      This vault uses <strong>Plausible Deniability</strong>. Create TWO passwords - one for your real vault, one for a decoy vault.
-                    </p>
-                    
-                    <div className="bg-yellow-50 p-4 rounded-xl mb-6 text-left border border-yellow-200">
-                      <p className="font-bold text-yellow-800 mb-2">⚠️ IMPORTANT TIPS:</p>
-                      <ul className="text-sm text-yellow-700 space-y-1">
-                        <li>• Use <strong>16+ characters</strong> for Master Password</li>
-                        <li>• Mix: A-Z, a-z, 0-9, !@#$%</li>
-                        <li>• Real & Decoy passwords must be <strong>DIFFERENT</strong></li>
-                        <li>• <strong>REMEMBER</strong> both passwords - cannot be recovered!</li>
-                      </ul>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔐</div>
+                    <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1d1d1f', marginBottom: '8px' }}>Setup Secure Vault</h3>
+                    <p style={{ color: '#6e6e73', marginBottom: '20px', fontSize: '14px' }}>This vault uses <strong>Plausible Deniability</strong>. Create TWO passwords — one for your real vault, one for a decoy vault.</p>
+                    <div style={{ background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', borderRadius: '10px', padding: '14px', marginBottom: '20px', textAlign: 'left' }}>
+                      <p style={{ fontWeight: 700, color: '#b45309', marginBottom: '8px', fontSize: '13px' }}>⚠️ IMPORTANT TIPS:</p>
+                      <p style={{ fontSize: '13px', color: '#92400e', marginBottom: '4px' }}>• Use <strong>16+ characters</strong> for Master Password</p>
+                      <p style={{ fontSize: '13px', color: '#92400e', marginBottom: '4px' }}>• Mix: A-Z, a-z, 0-9, !@#$%</p>
+                      <p style={{ fontSize: '13px', color: '#92400e', marginBottom: '4px' }}>• Real &amp; Decoy passwords must be <strong>DIFFERENT</strong></p>
+                      <p style={{ fontSize: '13px', color: '#92400e' }}>• <strong>REMEMBER</strong> both passwords — cannot be recovered!</p>
                     </div>
-
-                    <div className="max-w-md mx-auto space-y-4 text-left">
-                      <div>
-                        <label className="block text-[#5c4a32] font-semibold mb-2">🔐 Real Master Password</label>
-                        <input type="password" value={setupData.realPassword} onChange={(e) => setSetupData({...setupData, realPassword: e.target.value})} placeholder="Your actual vault password" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] focus:border-[#8b6914] focus:outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-[#5c4a32] font-semibold mb-2">🎭 Decoy Master Password</label>
-                        <input type="password" value={setupData.decoyPassword} onChange={(e) => setSetupData({...setupData, decoyPassword: e.target.value})} placeholder="Different password for decoy vault" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] focus:border-[#8b6914] focus:outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-[#5c4a32] font-semibold mb-2">🎭 Confirm Decoy Password</label>
-                        <input type="password" value={setupData.confirmDecoy} onChange={(e) => setSetupData({...setupData, confirmDecoy: e.target.value})} placeholder="Confirm decoy password" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] focus:border-[#8b6914] focus:outline-none" />
-                      </div>
-                      <button onClick={initializeDualVault} className="w-full bg-gradient-to-r from-[#8b6914] to-[#5c4a32] text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg">
-                        Initialize Dual Vault System 🔐
-                      </button>
+                    <div style={{ maxWidth: '380px', margin: '0 auto', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {[
+                        { label: '🔐 Real Master Password', key: 'realPassword', placeholder: 'Your actual vault password' },
+                        { label: '🎭 Decoy Master Password', key: 'decoyPassword', placeholder: 'Different password for decoy vault' },
+                        { label: '🎭 Confirm Decoy Password', key: 'confirmDecoy', placeholder: 'Confirm decoy password' },
+                      ].map(field => (
+                        <div key={field.key}>
+                          <label style={{ display: 'block', color: '#1d1d1f', fontWeight: 600, fontSize: '14px', marginBottom: '7px' }}>{field.label}</label>
+                          <input type="password" value={setupData[field.key]} onChange={e => setSetupData({ ...setupData, [field.key]: e.target.value })} placeholder={field.placeholder} className="mac-input" style={{ width: '100%', padding: '12px 14px' }} />
+                        </div>
+                      ))}
+                      <button onClick={initializeDualVault} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>Initialize Dual Vault System 🔐</button>
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center max-w-md mx-auto">
-                    <div className="text-5xl mb-4">🔒</div>
-                    <h3 className="text-2xl font-bold text-[#5c4a32] mb-4">Vault Locked</h3>
-                    <p className="text-[#8b7355] mb-6">
-                      Enter your master password to unlock your AES-256 secure vault.
-                    </p>
-                    <input type="password" value={masterPassword} onChange={(e) => setMasterPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && unlockVault()} placeholder="Master Password" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] mb-4 text-[#5c4a32] focus:border-[#8b6914] text-center tracking-widest text-lg" />
-                    <button onClick={unlockVault} className="w-full bg-gradient-to-r from-[#8b6914] to-[#5c4a32] text-white py-4 rounded-xl font-semibold text-lg hover:shadow-lg">
-                      Unlock 🔓
-                    </button>
-                    <p className="mt-4 text-xs text-[#ef4444] font-bold">
-                      Failed attempts: {failedAttempts}/3 before Security Lockdown.
-                    </p>
-                    <div className="mt-6 p-4 bg-red-50/50 rounded-xl border border-red-200">
-                      <p className="text-red-700 text-sm">
-                        ⚠️ <strong>Zero-Knowledge Architecture:</strong> If you forget your master password, your data <strong>CANNOT</strong> be recovered.
-                      </p>
+                  <div style={{ textAlign: 'center', maxWidth: '360px', margin: '0 auto' }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔒</div>
+                    <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1d1d1f', marginBottom: '8px' }}>Vault Locked</h3>
+                    <p style={{ color: '#6e6e73', fontSize: '14px', marginBottom: '20px' }}>Enter your master password to unlock your AES-256 secure vault.</p>
+                    <input type="password" value={masterPassword} onChange={e => setMasterPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && unlockVault()} placeholder="Master Password" className="mac-input" style={{ width: '100%', padding: '13px', textAlign: 'center', letterSpacing: '0.15em', fontSize: '16px', marginBottom: '12px' }} />
+                    <button onClick={unlockVault} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>Unlock 🔓</button>
+                    <p style={{ marginTop: '12px', fontSize: '12px', color: '#ff3b30', fontWeight: 600 }}>Failed attempts: {failedAttempts}/3 before Security Lockdown.</p>
+                    <div style={{ marginTop: '14px', background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.15)', borderRadius: '10px', padding: '12px' }}>
+                      <p style={{ color: '#c0392b', fontSize: '12px' }}>⚠️ <strong>Zero-Knowledge Architecture:</strong> If you forget your master password, your data <strong>CANNOT</strong> be recovered.</p>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="space-y-6">
-                
-                {/* Vault Header Controls */}
-                <div className="flex flex-col sm:flex-row justify-between items-center bg-white/70 p-4 rounded-2xl shadow-xl border border-[#e8dcc8] gap-4">
-                  <div className="flex items-center gap-2 text-[#22c55e]">
-                    <span className="text-2xl">🔓</span>
-                    <span className="font-semibold">Unlocked ({activeVaultMode === 'decoy' ? 'Decoy Mode' : 'Real Mode'})</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Vault Header */}
+                <div className="mac-card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34c759', fontWeight: 600, fontSize: '14px' }}>
+                    <span style={{ fontSize: '18px' }}>🔓</span>
+                    <span>Unlocked ({activeVaultMode === 'decoy' ? 'Decoy Mode' : 'Real Mode'})</span>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button onClick={() => setShowLogs(!showLogs)} className="px-4 py-2 bg-[#8b6914] text-white font-medium rounded-lg hover:bg-[#5c4a32] transition-colors relative">
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button onClick={() => setShowLogs(!showLogs)} className="mac-secondary-btn" style={{ position: 'relative' }}>
                       📸 Intruder Logs
-                      {intruderLogs.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{intruderLogs.length}</span>}
+                      {intruderLogs.length > 0 && <span style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ff3b30', color: '#fff', fontSize: '10px', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{intruderLogs.length}</span>}
                     </button>
-                    <button onClick={exportVault} className="px-4 py-2 bg-[#22c55e] text-white font-medium rounded-lg hover:bg-green-600 transition-colors">
-                      📤 Export Backup
-                    </button>
-                    <button onClick={lockVault} className="px-4 py-2 bg-red-500 text-white font-medium rounded-lg hover:bg-red-600 transition-colors">
-                      🔒 Lock Vault
-                    </button>
+                    <button onClick={exportVault} className="mac-success-btn">📤 Export Backup</button>
+                    <button onClick={lockVault} className="mac-danger-btn">🔒 Lock Vault</button>
                   </div>
                 </div>
 
-                {/* 🚨 INTRUDER LOGS SECTION */}
+                {/* Intruder Logs */}
                 {showLogs && (
-                  <div className="bg-red-50/90 backdrop-blur-lg rounded-2xl p-6 shadow-xl border-2 border-red-200 animate-fade-in">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
-                        📸 Security Audit: Intruder Logs ({intruderLogs.length})
-                      </h3>
-                      {intruderLogs.length > 0 && <button onClick={clearIntruderLogs} className="text-sm text-red-500 underline">Clear All Logs</button>}
+                  <div className="mac-card fade-in" style={{ padding: '20px', borderColor: 'rgba(255,59,48,0.25)', background: 'rgba(255,59,48,0.04)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#c0392b' }}>📸 Security Audit: Intruder Logs ({intruderLogs.length})</h3>
+                      {intruderLogs.length > 0 && <button onClick={clearIntruderLogs} style={{ background: 'none', border: 'none', color: '#ff3b30', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Clear All</button>}
                     </div>
                     {intruderLogs.length === 0 ? (
-                      <p className="text-green-600 text-center py-4 font-medium">🛡️ No intruders logged. Your vault is safe!</p>
+                      <p style={{ textAlign: 'center', color: '#34c759', padding: '16px', fontWeight: 500 }}>🛡️ No intruders logged. Your vault is safe!</p>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', maxHeight: '340px', overflowY: 'auto' }}>
                         {intruderLogs.map((log, i) => (
-                          <div key={i} className="bg-white p-3 rounded-xl shadow border border-red-100 flex flex-col items-center">
+                          <div key={i} style={{ background: '#fff', borderRadius: '10px', border: '1px solid rgba(255,59,48,0.12)', padding: '10px', textAlign: 'center' }}>
                             {log.photo === 'CAMERA_DENIED' ? (
-                              <div className="w-full h-32 bg-gray-200 flex items-center justify-center text-gray-500 text-xs text-center p-2 rounded-lg mb-2 border border-gray-300">
-                                No Photo<br/>(Camera Denied)
-                              </div>
+                              <div style={{ width: '100%', height: '90px', background: '#f0f0f5', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6e6e73', fontSize: '11px', marginBottom: '6px' }}>No Photo (Camera Denied)</div>
                             ) : (
-                              <img src={log.photo} alt="Intruder" className="w-full h-32 object-cover rounded-lg mb-2 border border-red-200" />
+                              <img src={log.photo} alt="Intruder" style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '7px', marginBottom: '6px' }} />
                             )}
-                            <span className="text-xs text-red-600 font-semibold">{log.time}</span>
+                            <span style={{ fontSize: '11px', color: '#ff3b30', fontWeight: 600 }}>{log.time}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                 )}
-                
-                {/* Add New Password Form */}
-                <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-                  <h3 className="text-lg font-bold text-[#5c4a32] mb-4">➕ Add New Password</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
+
+                {/* Add New */}
+                <div className="mac-card" style={{ padding: '22px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>➕ Add New Password</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                     <div>
-                      <label className="block text-[#5c4a32] mb-2 text-sm font-medium">Site/Service Name *</label>
-                      <input type="text" value={newVaultItem.site} onChange={(e) => setNewVaultItem({...newVaultItem, site: e.target.value})} placeholder="e.g., Gmail, Facebook, Netflix" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] placeholder-[#a89070] focus:border-[#8b6914] focus:outline-none" />
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#1d1d1f', marginBottom: '6px' }}>Site/Service Name *</label>
+                      <input type="text" value={newVaultItem.site} onChange={e => setNewVaultItem({ ...newVaultItem, site: e.target.value })} placeholder="e.g., Gmail, Facebook" className="mac-input" style={{ width: '100%', padding: '11px 13px' }} />
                     </div>
                     <div>
-                      <label className="block text-[#5c4a32] mb-2 text-sm font-medium">Username/Email</label>
-                      <input type="text" value={newVaultItem.username} onChange={(e) => setNewVaultItem({...newVaultItem, username: e.target.value})} placeholder="e.g., john@email.com" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] placeholder-[#a89070] focus:border-[#8b6914] focus:outline-none" />
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#1d1d1f', marginBottom: '6px' }}>Username/Email</label>
+                      <input type="text" value={newVaultItem.username} onChange={e => setNewVaultItem({ ...newVaultItem, username: e.target.value })} placeholder="e.g., john@email.com" className="mac-input" style={{ width: '100%', padding: '11px 13px' }} />
                     </div>
                     <div>
-                      <label className="block text-[#5c4a32] mb-2 text-sm font-medium">Password *</label>
-                      <input type="password" value={newVaultItem.password} onChange={(e) => setNewVaultItem({...newVaultItem, password: e.target.value})} placeholder="Enter password" className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] placeholder-[#a89070] focus:border-[#8b6914] focus:outline-none" />
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#1d1d1f', marginBottom: '6px' }}>Password *</label>
+                      <input type="password" value={newVaultItem.password} onChange={e => setNewVaultItem({ ...newVaultItem, password: e.target.value })} placeholder="Enter password" className="mac-input" style={{ width: '100%', padding: '11px 13px' }} />
                     </div>
                     <div>
-                      <label className="block text-[#5c4a32] mb-2 text-sm font-medium">Category</label>
-                      <select value={newVaultItem.category} onChange={(e) => setNewVaultItem({...newVaultItem, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] focus:border-[#8b6914] focus:outline-none">
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#1d1d1f', marginBottom: '6px' }}>Category</label>
+                      <select value={newVaultItem.category} onChange={e => setNewVaultItem({ ...newVaultItem, category: e.target.value })} className="select-mac">
                         <option value="Social">📱 Social</option>
                         <option value="Banking">🏦 Banking</option>
                         <option value="Email">📧 Email</option>
@@ -1059,60 +902,58 @@ export default function PasswordBreachChecker() {
                       </select>
                     </div>
                   </div>
-                  <div className="mt-4">
-                    <label className="block text-[#5c4a32] mb-2 text-sm font-medium">Notes (optional)</label>
-                    <textarea value={newVaultItem.notes} onChange={(e) => setNewVaultItem({...newVaultItem, notes: e.target.value})} placeholder="Any additional notes..." rows={2} className="w-full px-4 py-3 rounded-xl border-2 border-[#e8dcc8] bg-white text-[#5c4a32] placeholder-[#a89070] focus:border-[#8b6914] focus:outline-none resize-none" />
+                  <div style={{ marginTop: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#1d1d1f', marginBottom: '6px' }}>Notes (optional)</label>
+                    <textarea value={newVaultItem.notes} onChange={e => setNewVaultItem({ ...newVaultItem, notes: e.target.value })} placeholder="Any additional notes..." rows={2} className="mac-input" style={{ width: '100%', padding: '11px 13px', resize: 'none' }} />
                   </div>
-                  <button onClick={addToVault} disabled={!newVaultItem.site || !newVaultItem.password} className="w-full mt-4 bg-gradient-to-r from-[#8b6914] to-[#5c4a32] text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all duration-300 disabled:opacity-50">
-                    Add to Vault 💾
-                  </button>
+                  <button onClick={addToVault} disabled={!newVaultItem.site || !newVaultItem.password} className="mac-btn-primary" style={{ width: '100%', padding: '12px', marginTop: '14px', fontSize: '14px' }}>Add to Vault 💾</button>
                 </div>
 
-                {/* Filter Categories */}
-                <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-4 shadow-xl border border-[#e8dcc8]">
-                  <div className="flex flex-wrap gap-2 items-center">
-                    <span className="text-[#5c4a32] font-medium">Filter:</span>
+                {/* Filter */}
+                <div className="mac-card" style={{ padding: '14px 18px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ color: '#6e6e73', fontSize: '13px', fontWeight: 500 }}>Filter:</span>
                     {['all', 'Social', 'Banking', 'Email', 'Shopping', 'Work', 'Other'].map(cat => (
-                      <button key={cat} onClick={() => setVaultFilter(cat)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${vaultFilter === cat ? 'bg-[#8b6914] text-white' : 'bg-[#faf8f5] text-[#5c4a32] hover:bg-[#e8dcc8]'}`}>
-                        {cat === 'all' ? '📋 All' : cat === 'Social' ? '📱' : cat === 'Banking' ? '🏦' : cat === 'Email' ? '📧' : cat === 'Shopping' ? '🛒' : cat === 'Work' ? '💼' : '📁'} {cat}
+                      <button key={cat} onClick={() => setVaultFilter(cat)} style={{ padding: '5px 12px', borderRadius: '20px', border: 'none', fontSize: '13px', fontWeight: 500, cursor: 'pointer', background: vaultFilter === cat ? '#0071e3' : 'rgba(0,0,0,0.06)', color: vaultFilter === cat ? '#fff' : '#1d1d1f', transition: 'all 0.15s' }}>
+                        {cat === 'all' ? '📋 All' : cat}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Vault Items List */}
-                <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-                  <h3 className="text-lg font-bold text-[#5c4a32] mb-4">🔑 Your Saved Passwords ({filteredVault.length})</h3>
+                {/* Vault Items */}
+                <div className="mac-card" style={{ padding: '22px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#1d1d1f', marginBottom: '14px' }}>🔑 Your Saved Passwords ({filteredVault.length})</h3>
                   {filteredVault.length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="text-5xl mb-4">🔐</div>
-                      <p className="text-[#8b7355]">No passwords saved yet!</p>
+                    <div style={{ textAlign: 'center', padding: '32px' }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '10px' }}>🔐</div>
+                      <p style={{ color: '#6e6e73' }}>No passwords saved yet!</p>
                     </div>
                   ) : (
-                    <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                      {filteredVault.map((item) => (
-                        <div key={item.id} className="p-4 bg-[#faf8f5] rounded-xl border border-[#e8dcc8]">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.category === 'Social' ? 'bg-blue-100 text-blue-700' : item.category === 'Banking' ? 'bg-green-100 text-green-700' : item.category === 'Email' ? 'bg-red-100 text-red-700' : item.category === 'Shopping' ? 'bg-yellow-100 text-yellow-700' : item.category === 'Work' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '500px', overflowY: 'auto' }}>
+                      {filteredVault.map(item => (
+                        <div key={item.id} className="vault-item" style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                <span className="mac-pill" style={{ background: item.category === 'Banking' ? 'rgba(52,199,89,0.12)' : item.category === 'Email' ? 'rgba(255,59,48,0.1)' : item.category === 'Shopping' ? 'rgba(255,204,0,0.15)' : item.category === 'Work' ? 'rgba(175,82,222,0.12)' : 'rgba(0,113,227,0.1)', color: item.category === 'Banking' ? '#1a7340' : item.category === 'Email' ? '#c0392b' : item.category === 'Shopping' ? '#92400e' : item.category === 'Work' ? '#6b21a8' : '#004fa3' }}>
                                   {item.category === 'Social' ? '📱' : item.category === 'Banking' ? '🏦' : item.category === 'Email' ? '📧' : item.category === 'Shopping' ? '🛒' : item.category === 'Work' ? '💼' : '📁'} {item.category}
                                 </span>
-                                {item.favorite && <span className="text-yellow-500">⭐</span>}
+                                {item.favorite && <span style={{ color: '#ffd60a' }}>⭐</span>}
                               </div>
-                              <h4 className="font-bold text-[#5c4a32]">{item.site}</h4>
-                              <p className="text-[#8b7355] text-sm">{item.username}</p>
-                              <div className="flex items-center gap-2 mt-2">
-                                <code className="bg-[#e8dcc8] px-3 py-1 rounded text-[#5c4a32] font-mono">
+                              <div style={{ fontWeight: 600, color: '#1d1d1f', fontSize: '15px' }}>{item.site}</div>
+                              <div style={{ color: '#6e6e73', fontSize: '13px', marginBottom: '8px' }}>{item.username}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <code style={{ background: 'rgba(0,0,0,0.05)', padding: '4px 10px', borderRadius: '6px', color: '#1d1d1f', fontFamily: '"SF Mono", monospace', fontSize: '13px' }}>
                                   {showVaultPasswords[item.id] ? item.password : '••••••••••••'}
                                 </code>
-                                <button onClick={() => toggleVaultPassword(item.id)} className="p-2 hover:bg-[#e8dcc8] rounded transition-colors">{showVaultPasswords[item.id] ? '🙈' : '👁️'}</button>
-                                <button onClick={() => copyToClipboard(item.password)} className="p-2 hover:bg-[#e8dcc8] rounded transition-colors" title="Copy password">📋</button>
-                                <button onClick={() => toggleFavorite(item.id)} className="p-2 hover:bg-[#e8dcc8] rounded transition-colors" title="Toggle favorite">{item.favorite ? '⭐' : '☆'}</button>
-                                <button onClick={() => deleteFromVault(item.id)} className="p-2 hover:bg-red-100 rounded transition-colors text-red-500" title="Delete">🗑️</button>
+                                <button className="icon-btn" onClick={() => toggleVaultPassword(item.id)}>{showVaultPasswords[item.id] ? '🙈' : '👁️'}</button>
+                                <button className="icon-btn" onClick={() => copyToClipboard(item.password)} title="Copy">📋</button>
+                                <button className="icon-btn" onClick={() => toggleFavorite(item.id)} title="Favorite">{item.favorite ? '⭐' : '☆'}</button>
+                                <button className="icon-btn icon-btn-danger" onClick={() => deleteFromVault(item.id)} title="Delete">🗑️</button>
                               </div>
-                              {item.notes && <p className="text-[#a89070] text-xs mt-2">📝 {item.notes}</p>}
-                              <p className="text-[#a89070] text-xs mt-1">Added: {item.createdAt}</p>
+                              {item.notes && <p style={{ color: '#a1a1aa', fontSize: '12px', marginTop: '6px' }}>📝 {item.notes}</p>}
+                              <p style={{ color: '#a1a1aa', fontSize: '11px', marginTop: '4px' }}>Added: {item.createdAt}</p>
                             </div>
                           </div>
                         </div>
@@ -1121,27 +962,17 @@ export default function PasswordBreachChecker() {
                   )}
                 </div>
 
-                {/* 🔒 Security Tips in Vault */}
-                <div className="bg-gradient-to-r from-blue-50 to-green-50 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-blue-200">
-                  <h3 className="text-lg font-bold text-[#5c4a32] mb-4">🔒 Security Reminders</h3>
-                  <div className="grid md:grid-cols-2 gap-4 text-sm">
-                    <div className="p-3 bg-white/50 rounded-xl">
-                      <p className="font-bold text-red-600 mb-1">❌ NEVER DO:</p>
-                      <ul className="text-gray-700 space-y-1">
-                        <li>• Clear browser data</li>
-                        <li>• Use Incognito mode</li>
-                        <li>• Share Master Password</li>
-                        <li>• Use on public computer</li>
-                      </ul>
+                {/* Security Tips */}
+                <div className="mac-card" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(0,113,227,0.04) 0%, rgba(52,199,89,0.04) 100%)' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#1d1d1f', marginBottom: '14px' }}>🔒 Security Reminders</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '10px', padding: '14px' }}>
+                      <p style={{ fontWeight: 700, color: '#ff3b30', fontSize: '13px', marginBottom: '8px' }}>❌ NEVER DO:</p>
+                      {['Clear browser data', 'Use Incognito mode', 'Share Master Password', 'Use on public computer'].map(t => <p key={t} style={{ fontSize: '12px', color: '#4a4a4a', marginBottom: '4px' }}>• {t}</p>)}
                     </div>
-                    <div className="p-3 bg-white/50 rounded-xl">
-                      <p className="font-bold text-green-600 mb-1">✅ ALWAYS DO:</p>
-                      <ul className="text-gray-700 space-y-1">
-                        <li>• Export regular backups</li>
-                        <li>• Lock vault when away</li>
-                        <li>• Use strong passwords</li>
-                        <li>• Keep device secure</li>
-                      </ul>
+                    <div style={{ background: 'rgba(255,255,255,0.7)', borderRadius: '10px', padding: '14px' }}>
+                      <p style={{ fontWeight: 700, color: '#34c759', fontSize: '13px', marginBottom: '8px' }}>✅ ALWAYS DO:</p>
+                      {['Export regular backups', 'Lock vault when away', 'Use strong passwords', 'Keep device secure'].map(t => <p key={t} style={{ fontSize: '12px', color: '#4a4a4a', marginBottom: '4px' }}>• {t}</p>)}
                     </div>
                   </div>
                 </div>
@@ -1150,62 +981,62 @@ export default function PasswordBreachChecker() {
           </div>
         )}
 
-        {/* 📜 HISTORY TAB */}
+        {/* ===== HISTORY ===== */}
         {activeTab === 'history' && (
-          <div className="space-y-6">
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-[#5c4a32] flex items-center gap-2">📜 Check History</h3>
-                {history.length > 0 && <button onClick={() => { setHistory([]); localStorage.removeItem('passwordCheckHistory'); }} className="px-4 py-2 text-[#ef4444] hover:bg-red-50 rounded-lg transition-colors text-sm">Clear All</button>}
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="mac-card" style={{ padding: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#1d1d1f' }}>📜 Check History</h3>
+                {history.length > 0 && <button onClick={() => { setHistory([]); localStorage.removeItem('passwordCheckHistory'); }} className="mac-danger-btn" style={{ fontSize: '12px', padding: '5px 12px' }}>Clear All</button>}
               </div>
-              
               {history.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="text-6xl mb-4">📭</div>
-                  <p className="text-[#8b7355]">No password checks yet!</p>
+                <div style={{ textAlign: 'center', padding: '32px' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📭</div>
+                  <p style={{ color: '#6e6e73' }}>No password checks yet!</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto' }}>
                   {history.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-[#faf8f5] rounded-xl">
-                      <div className="flex-1 min-w-0 mr-4">
-                        <div className="font-mono text-[#5c4a32] truncate">{item.password.length > 20 ? item.password.substring(0, 20) + '...' : item.password}</div>
-                        <div className="text-[#8b7355] text-sm">{item.time}</div>
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: 'rgba(0,0,0,0.03)', borderRadius: '10px', border: '1px solid rgba(0,0,0,0.05)' }}>
+                      <div style={{ flex: 1, minWidth: 0, marginRight: '12px' }}>
+                        <div style={{ fontFamily: '"SF Mono", monospace', color: '#1d1d1f', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.password.length > 22 ? item.password.substring(0, 22) + '…' : item.password}</div>
+                        <div style={{ color: '#6e6e73', fontSize: '12px' }}>{item.time}</div>
                       </div>
-                      <div className={`px-3 py-1 rounded-full text-sm font-medium ${item.breachCount === 0 ? 'bg-green-100 text-green-700' : item.breachCount === null ? 'bg-gray-100 text-gray-700' : 'bg-red-100 text-red-700'}`}>
+                      <span className="mac-pill" style={{ whiteSpace: 'nowrap', background: item.breachCount === 0 ? 'rgba(52,199,89,0.12)' : item.breachCount === null ? 'rgba(0,0,0,0.06)' : 'rgba(255,59,48,0.1)', color: item.breachCount === 0 ? '#1a7340' : item.breachCount === null ? '#6e6e73' : '#c0392b' }}>
                         {item.breachCount === 0 ? '✅ Safe' : item.breachCount === null ? '❓ Unknown' : `🚨 ${item.breachCount.toLocaleString()} breaches`}
-                      </div>
+                      </span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl p-6 shadow-xl border border-[#e8dcc8]">
-              <h3 className="text-xl font-bold text-[#5c4a32] mb-4">📈 Security Awareness Stats</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="text-center p-4 bg-[#faf8f5] rounded-xl"><div className="text-3xl font-bold text-[#8b6914]">600M+</div><div className="text-[#8b7355] text-sm">Passwords in Database</div></div>
-                <div className="text-center p-4 bg-[#faf8f5] rounded-xl"><div className="text-3xl font-bold text-[#8b6914]">15B+</div><div className="text-[#8b7355] text-sm">Breached Records</div></div>
-                <div className="text-center p-4 bg-[#faf8f5] rounded-xl"><div className="text-3xl font-bold text-[#8b6914]">24/7</div><div className="text-[#8b7355] text-sm">Cyber Attacks Active</div></div>
-                <div className="text-center p-4 bg-[#faf8f5] rounded-xl"><div className="text-3xl font-bold text-[#8b6914]">81%</div><div className="text-[#8b7355] text-sm">Breaches Due to Weak Passwords</div></div>
-                <div className="text-center p-4 bg-[#faf8f5] rounded-xl"><div className="text-3xl font-bold text-[#8b6914]">70%</div><div className="text-[#8b7355] text-sm">Reuse Passwords</div></div>
-                <div className="text-center p-4 bg-[#faf8f5] rounded-xl"><div className="text-3xl font-bold text-[#8b6914]">3min</div><div className="text-[#8b7355] text-sm">Avg Password Crack Time</div></div>
+            <div className="mac-card" style={{ padding: '24px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>📈 Security Awareness Stats</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                {[
+                  { val: '600M+', label: 'Passwords in Database' },
+                  { val: '15B+', label: 'Breached Records' },
+                  { val: '24/7', label: 'Cyber Attacks Active' },
+                  { val: '81%', label: 'Breaches Due to Weak Passwords' },
+                  { val: '70%', label: 'Reuse Passwords' },
+                  { val: '3min', label: 'Avg Password Crack Time' },
+                ].map((stat, i) => (
+                  <div key={i} style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', padding: '16px 10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#0071e3', marginBottom: '5px' }}>{stat.val}</div>
+                    <div style={{ fontSize: '11px', color: '#6e6e73' }}>{stat.label}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         )}
 
         {/* Footer */}
-        <footer className="text-center mt-12 text-[#8b7355] text-sm">
+        <footer style={{ textAlign: 'center', marginTop: '40px', color: '#a1a1aa', fontSize: '13px' }}>
           <p>🔐 Powered by Have I Been Pwned API • Your passwords never leave your browser</p>
-          <p className="mt-1">Made with ❤️ for your security</p>
+          <p style={{ marginTop: '4px' }}>Made with ❤️ for your security</p>
         </footer>
       </div>
-      
-      <style>{`
-        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fade-in { animation: fade-in 0.3s ease-out; }
-      `}</style>
     </div>
   );
 }
