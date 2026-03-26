@@ -76,6 +76,13 @@ async function sha1(message) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
+async function sha256Hash(message) {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function calculateEntropy(password) {
   let charsetSize = 0;
   if (/[a-z]/.test(password)) charsetSize += 26;
@@ -177,9 +184,9 @@ function analyzeUrl(inputUrl) {
     if (foundCrypto.length >= 2) { score += 35; reasons.push(`🚨 Crypto scam detected`); }
     const charCounts = {};
     for (const char of domainName) { if (char !== '-' && char !== '.') { charCounts[char] = (charCounts[char] || 0) + 1; } }
-    let entropy = 0;
-    for (const char in charCounts) { const p = charCounts[char] / domainName.length; entropy -= p * Math.log2(p); }
-    if (entropy > 3.5 && domainName.length > 8) { score += 20; reasons.push(`⚠️ Randomly generated domain`); }
+    let domainEntropy = 0;
+    for (const char in charCounts) { const p = charCounts[char] / domainName.length; domainEntropy -= p * Math.log2(p); }
+    if (domainEntropy > 3.5 && domainName.length > 8) { score += 20; reasons.push(`⚠️ Randomly generated domain`); }
     const suspParams = ['redirect=', 'url=', 'link=', 'goto=', 'next=', 'payment=', 'checkout=', 'download='];
     for (const param of suspParams) { if (query.includes(param)) { score += 20; reasons.push(`⚠️ Suspicious redirect parameter`); break; } }
     if (fullUrl.startsWith('data:') || fullUrl.startsWith('javascript:')) { score += 60; reasons.push("🚨 Dangerous protocol"); }
@@ -192,6 +199,46 @@ function analyzeUrl(inputUrl) {
   } catch (e) {
     return { isSafe: false, score: 100, reasons: ["🚨 Invalid URL format"] };
   }
+}
+
+// ==========================================
+// AES Encryption/Decryption for History
+// Using Web Crypto API (browser built-in)
+// ==========================================
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptData(data, password) {
+  const salt = 'PassGuard_History_Salt_v1';
+  const key = await deriveKey(password, salt);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder();
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(data)));
+  return JSON.stringify({
+    iv: Array.from(iv),
+    data: Array.from(new Uint8Array(encrypted))
+  });
+}
+
+async function decryptData(encryptedStr, password) {
+  const salt = 'PassGuard_History_Salt_v1';
+  const key = await deriveKey(password, salt);
+  const { iv, data } = JSON.parse(encryptedStr);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(iv) },
+    key,
+    new Uint8Array(data)
+  );
+  return JSON.parse(new TextDecoder().decode(decrypted));
 }
 
 export default function PasswordBreachChecker() {
@@ -223,15 +270,32 @@ export default function PasswordBreachChecker() {
   const [intruderAlert, setIntruderAlert] = useState(null);
   const [intruderLogs, setIntruderLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
+
+  // ===== HISTORY SECURITY STATES =====
+  const [historyAccessPassword, setHistoryAccessPassword] = useState('');
+  const [isHistoryUnlocked, setIsHistoryUnlocked] = useState(false);
+  const [historyNeedsSetup, setHistoryNeedsSetup] = useState(false);
+  const [historySetupPassword, setHistorySetupPassword] = useState('');
+  const [historySetupConfirm, setHistorySetupConfirm] = useState('');
+  const [historyFailedAttempts, setHistoryFailedAttempts] = useState(0);
+  const [historyLocked, setHistoryLocked] = useState(false);
+  const [historyLockTimer, setHistoryLockTimer] = useState(0);
+  const [historyPasswordKey, setHistoryPasswordKey] = useState('');
+  const [showHistoryPassword, setShowHistoryPassword] = useState(false);
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
+  // ===== PANIC KEY =====
   useEffect(() => {
     const handlePanic = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === '9') {
         localStorage.setItem('secure_vault_real', '00000000000'); localStorage.removeItem('secure_vault_real');
         localStorage.setItem('secure_vault_decoy', '00000000000'); localStorage.removeItem('secure_vault_decoy');
         localStorage.removeItem('intruder_logs');
+        localStorage.removeItem('history_password_hash');
+        localStorage.removeItem('encrypted_check_history');
+        localStorage.removeItem('history_intruder_logs');
         document.body.innerHTML = '<div style="background:#fff; color:#ef4444; height:100vh; display:flex; align-items:center; justify-content:center; font-size:2rem; font-family:sans-serif; font-weight:bold;">🚨 ALL DATA PURGED. SYSTEM SECURED.</div>';
         setTimeout(() => window.location.href = 'https://www.google.com', 1500);
       }
@@ -240,18 +304,43 @@ export default function PasswordBreachChecker() {
     return () => window.removeEventListener('keydown', handlePanic);
   }, []);
 
+  // ===== INIT =====
   useEffect(() => {
     const realVault = localStorage.getItem('secure_vault_real');
     const decoyVault = localStorage.getItem('secure_vault_decoy');
     if (!realVault && !decoyVault) setNeedsSetup(true);
-    const savedHistory = localStorage.getItem('passwordCheckHistory');
-    if (savedHistory) { try { setHistory(JSON.parse(savedHistory)); } catch (e) {} }
+
+    // Check if history password exists
+    const historyHash = localStorage.getItem('history_password_hash');
+    if (!historyHash) {
+      setHistoryNeedsSetup(true);
+    }
+
     const savedLogs = localStorage.getItem('intruder_logs');
     if (savedLogs) { try { setIntruderLogs(JSON.parse(savedLogs)); } catch (e) {} }
     const savedReminder = localStorage.getItem('lastBackupReminder');
     if (savedReminder) setLastBackupReminder(parseInt(savedReminder));
   }, []);
 
+  // ===== HISTORY LOCKOUT TIMER =====
+  useEffect(() => {
+    let interval;
+    if (historyLocked && historyLockTimer > 0) {
+      interval = setInterval(() => {
+        setHistoryLockTimer(prev => {
+          if (prev <= 1) {
+            setHistoryLocked(false);
+            setHistoryFailedAttempts(0);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [historyLocked, historyLockTimer]);
+
+  // ===== VAULT INACTIVITY =====
   useEffect(() => {
     let inactivityTimer;
     const resetTimer = () => {
@@ -284,10 +373,130 @@ export default function PasswordBreachChecker() {
     }
   }, [vaultUnlocked, vaultData.length, lastBackupReminder]);
 
-  const saveToHistory = (pwd, count) => {
-    const newHistory = [{ password: pwd, breachCount: count, time: new Date().toLocaleString() }, ...history.slice(0, 49)];
-    setHistory(newHistory);
-    localStorage.setItem('passwordCheckHistory', JSON.stringify(newHistory));
+  // ===== HISTORY PASSWORD SETUP =====
+  const setupHistoryPassword = async () => {
+    if (!historySetupPassword || historySetupPassword.length < 6) {
+      return alert('⚠️ History password must be at least 6 characters!');
+    }
+    if (historySetupPassword !== historySetupConfirm) {
+      return alert('⚠️ Passwords do not match!');
+    }
+
+    const hash = await sha256Hash(historySetupPassword);
+    localStorage.setItem('history_password_hash', hash);
+
+    // Encrypt empty history with this password
+    const encrypted = await encryptData([], historySetupPassword);
+    localStorage.setItem('encrypted_check_history', encrypted);
+
+    setHistoryNeedsSetup(false);
+    setHistoryPasswordKey(historySetupPassword);
+    setIsHistoryUnlocked(true);
+    setHistory([]);
+    setHistorySetupPassword('');
+    setHistorySetupConfirm('');
+    alert('✅ History password created!\n\n⚠️ REMEMBER this password - it CANNOT be recovered!');
+  };
+
+  // ===== HISTORY UNLOCK =====
+  const unlockHistory = async () => {
+    if (historyLocked) return;
+    if (!historyAccessPassword) return;
+
+    const storedHash = localStorage.getItem('history_password_hash');
+    const inputHash = await sha256Hash(historyAccessPassword);
+
+    if (inputHash === storedHash) {
+      // Correct password - decrypt history
+      setHistoryFailedAttempts(0);
+      setHistoryPasswordKey(historyAccessPassword);
+
+      const encryptedHistory = localStorage.getItem('encrypted_check_history');
+      if (encryptedHistory) {
+        try {
+          const decrypted = await decryptData(encryptedHistory, historyAccessPassword);
+          setHistory(decrypted);
+        } catch (e) {
+          setHistory([]);
+        }
+      } else {
+        setHistory([]);
+      }
+
+      setIsHistoryUnlocked(true);
+      setHistoryAccessPassword('');
+    } else {
+      // Wrong password
+      const newFails = historyFailedAttempts + 1;
+      setHistoryFailedAttempts(newFails);
+
+      if (newFails >= 5) {
+        // 5 failed attempts = WIPE ALL HISTORY DATA
+        localStorage.removeItem('encrypted_check_history');
+        localStorage.removeItem('history_password_hash');
+
+        // Log intruder attempt
+        const historyLogs = JSON.parse(localStorage.getItem('history_intruder_logs') || '[]');
+        historyLogs.unshift({ time: new Date().toLocaleString(), action: 'HISTORY WIPED - 5 failed attempts' });
+        localStorage.setItem('history_intruder_logs', JSON.stringify(historyLogs));
+
+        captureIntruder();
+        setHistoryNeedsSetup(true);
+        setHistoryFailedAttempts(0);
+        alert('🚨 SECURITY BREACH!\n\n5 failed attempts detected.\n\n⚠️ ALL HISTORY DATA HAS BEEN PERMANENTLY DESTROYED.\n\n📸 Intruder photo captured.');
+      } else if (newFails >= 3) {
+        // 3 failed = lock for 60 seconds + capture photo
+        setHistoryLocked(true);
+        setHistoryLockTimer(60);
+        captureIntruder();
+        alert(`🚨 INTRUDER ALERT!\n\n${newFails} failed attempts.\nLocked for 60 seconds.\n📸 Photo captured.\n\n⚠️ ${5 - newFails} more wrong attempts = ALL HISTORY WIPED!`);
+      } else {
+        alert(`❌ Wrong password!\n\nAttempt ${newFails}/5\n⚠️ After 3 fails: 60s lockout + photo\n⚠️ After 5 fails: ALL DATA DESTROYED`);
+      }
+
+      setHistoryAccessPassword('');
+    }
+  };
+
+  // ===== LOCK HISTORY =====
+  const lockHistory = () => {
+    setIsHistoryUnlocked(false);
+    setHistory([]);
+    setHistoryPasswordKey('');
+    setHistoryAccessPassword('');
+  };
+
+  // ===== SAVE HISTORY (ENCRYPTED) =====
+  const saveToHistory = async (pwd, count) => {
+    const maskedPwd = pwd.substring(0, 3) + '•'.repeat(Math.max(0, pwd.length - 3));
+    const newEntry = { password: maskedPwd, breachCount: count, time: new Date().toLocaleString() };
+
+    // If history is unlocked, update in memory + encrypt & save
+    if (isHistoryUnlocked && historyPasswordKey) {
+      const newHistory = [newEntry, ...history.slice(0, 49)];
+      setHistory(newHistory);
+      try {
+        const encrypted = await encryptData(newHistory, historyPasswordKey);
+        localStorage.setItem('encrypted_check_history', encrypted);
+      } catch (e) {
+        console.error('Failed to encrypt history');
+      }
+    } else if (historyPasswordKey) {
+      // History locked but key in memory (same session)
+      const encryptedHistory = localStorage.getItem('encrypted_check_history');
+      let currentHistory = [];
+      if (encryptedHistory) {
+        try {
+          currentHistory = await decryptData(encryptedHistory, historyPasswordKey);
+        } catch (e) {}
+      }
+      const newHistory = [newEntry, ...currentHistory.slice(0, 49)];
+      try {
+        const encrypted = await encryptData(newHistory, historyPasswordKey);
+        localStorage.setItem('encrypted_check_history', encrypted);
+      } catch (e) {}
+    }
+    // If no key at all, history entry is lost (security by design)
   };
 
   const isCryptoLoaded = () => typeof window.CryptoJS !== 'undefined';
@@ -441,7 +650,7 @@ export default function PasswordBreachChecker() {
     if (!password) return;
     setLoading(true); setError(''); setBreachCount(null);
     try {
-      if (checkCommonPasswords(password)) { setBreachCount(9999999); saveToHistory(password, 9999999); setLoading(false); return; }
+      if (checkCommonPasswords(password)) { setBreachCount(9999999); await saveToHistory(password, 9999999); setLoading(false); return; }
       const hash = await sha1(password);
       const response = await fetch(`https://api.pwnedpasswords.com/range/${hash.substring(0, 5)}`);
       if (!response.ok) throw new Error('Failed');
@@ -449,12 +658,13 @@ export default function PasswordBreachChecker() {
       let found = false;
       for (const line of lines) {
         if (line.split(':')[0].trim() === hash.substring(5)) {
-          setBreachCount(parseInt(line.split(':')[1].trim()));
-          saveToHistory(password, parseInt(line.split(':')[1].trim()));
+          const count = parseInt(line.split(':')[1].trim());
+          setBreachCount(count);
+          await saveToHistory(password, count);
           found = true; break;
         }
       }
-      if (!found) { setBreachCount(0); saveToHistory(password, 0); }
+      if (!found) { setBreachCount(0); await saveToHistory(password, 0); }
     } catch (err) { setError('Connection error.'); }
     setLoading(false);
   };
@@ -463,6 +673,17 @@ export default function PasswordBreachChecker() {
     if (!urlToScan) return;
     setIsScanningUrl(true); setUrlResult(null);
     setTimeout(() => { setUrlResult(analyzeUrl(urlToScan)); setIsScanningUrl(false); }, 1500);
+  };
+
+  // ===== CLEAR HISTORY =====
+  const clearHistory = async () => {
+    if (window.confirm('⚠️ Are you sure you want to permanently delete ALL check history?\n\nThis action CANNOT be undone!')) {
+      setHistory([]);
+      if (historyPasswordKey) {
+        const encrypted = await encryptData([], historyPasswordKey);
+        localStorage.setItem('encrypted_check_history', encrypted);
+      }
+    }
   };
 
   const tabs = [
@@ -513,14 +734,14 @@ export default function PasswordBreachChecker() {
         .icon-btn-danger:hover { background: rgba(255,59,48,0.1); }
       `}</style>
 
-      {/* macOS-style background blobs */}
+      {/* Background blobs */}
       <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
         <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '500px', height: '500px', background: 'radial-gradient(circle, rgba(0,113,227,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
         <div style={{ position: 'absolute', bottom: '-100px', right: '-100px', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(175,82,222,0.07) 0%, transparent 70%)', borderRadius: '50%' }} />
         <div style={{ position: 'absolute', top: '40%', left: '30%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(52,199,89,0.05) 0%, transparent 70%)', borderRadius: '50%' }} />
       </div>
 
-      {/* 🚨 INTRUDER RED OVERLAY */}
+      {/* INTRUDER OVERLAY */}
       {intruderAlert && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(180,0,0,0.96)', backdropFilter: 'blur(12px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <div style={{ fontSize: '3rem', fontWeight: 900, letterSpacing: '0.1em', marginBottom: '12px', textAlign: 'center' }}>🚨 INTRUDER DETECTED 🚨</div>
@@ -572,7 +793,7 @@ export default function PasswordBreachChecker() {
 
       <div style={{ maxWidth: '820px', margin: '0 auto', padding: '32px 20px 48px', position: 'relative', zIndex: 1 }}>
         
-        {/* macOS Window Header dots */}
+        {/* Traffic dots */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: '7px', marginBottom: '24px' }}>
           <span className="traffic-dot" style={{ background: '#ff5f57' }} />
           <span className="traffic-dot" style={{ background: '#ffbd2e' }} />
@@ -587,7 +808,7 @@ export default function PasswordBreachChecker() {
           <p style={{ color: '#6e6e73', fontSize: '16px', fontWeight: 400 }}>Check, Generate, Scan & Protect Your Digital Life</p>
         </header>
 
-        {/* Tab Bar - macOS segmented style */}
+        {/* Tab Bar */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '28px' }}>
           <div style={{ background: 'rgba(0,0,0,0.06)', borderRadius: '12px', padding: '4px', display: 'flex', gap: '2px' }}>
             {tabs.map(tab => (
@@ -832,7 +1053,6 @@ export default function PasswordBreachChecker() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* Vault Header */}
                 <div className="mac-card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34c759', fontWeight: 600, fontSize: '14px' }}>
                     <span style={{ fontSize: '18px' }}>🔓</span>
@@ -848,7 +1068,6 @@ export default function PasswordBreachChecker() {
                   </div>
                 </div>
 
-                {/* Intruder Logs */}
                 {showLogs && (
                   <div className="mac-card fade-in" style={{ padding: '20px', borderColor: 'rgba(255,59,48,0.25)', background: 'rgba(255,59,48,0.04)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -874,7 +1093,6 @@ export default function PasswordBreachChecker() {
                   </div>
                 )}
 
-                {/* Add New */}
                 <div className="mac-card" style={{ padding: '22px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>➕ Add New Password</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
@@ -909,7 +1127,6 @@ export default function PasswordBreachChecker() {
                   <button onClick={addToVault} disabled={!newVaultItem.site || !newVaultItem.password} className="mac-btn-primary" style={{ width: '100%', padding: '12px', marginTop: '14px', fontSize: '14px' }}>Add to Vault 💾</button>
                 </div>
 
-                {/* Filter */}
                 <div className="mac-card" style={{ padding: '14px 18px' }}>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <span style={{ color: '#6e6e73', fontSize: '13px', fontWeight: 500 }}>Filter:</span>
@@ -921,7 +1138,6 @@ export default function PasswordBreachChecker() {
                   </div>
                 </div>
 
-                {/* Vault Items */}
                 <div className="mac-card" style={{ padding: '22px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#1d1d1f', marginBottom: '14px' }}>🔑 Your Saved Passwords ({filteredVault.length})</h3>
                   {filteredVault.length === 0 ? (
@@ -962,7 +1178,6 @@ export default function PasswordBreachChecker() {
                   )}
                 </div>
 
-                {/* Security Tips */}
                 <div className="mac-card" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(0,113,227,0.04) 0%, rgba(52,199,89,0.04) 100%)' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#1d1d1f', marginBottom: '14px' }}>🔒 Security Reminders</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
@@ -981,53 +1196,172 @@ export default function PasswordBreachChecker() {
           </div>
         )}
 
-        {/* ===== HISTORY ===== */}
+        {/* ===== HISTORY TAB ===== */}
         {activeTab === 'history' && (
           <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="mac-card" style={{ padding: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-                <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#1d1d1f' }}>📜 Check History</h3>
-                {history.length > 0 && <button onClick={() => { setHistory([]); localStorage.removeItem('passwordCheckHistory'); }} className="mac-danger-btn" style={{ fontSize: '12px', padding: '5px 12px' }}>Clear All</button>}
-              </div>
-              {history.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '32px' }}>
-                  <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📭</div>
-                  <p style={{ color: '#6e6e73' }}>No password checks yet!</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto' }}>
-                  {history.map((item, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: 'rgba(0,0,0,0.03)', borderRadius: '10px', border: '1px solid rgba(0,0,0,0.05)' }}>
-                      <div style={{ flex: 1, minWidth: 0, marginRight: '12px' }}>
-                        <div style={{ fontFamily: '"SF Mono", monospace', color: '#1d1d1f', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.password.length > 22 ? item.password.substring(0, 22) + '…' : item.password}</div>
-                        <div style={{ color: '#6e6e73', fontSize: '12px' }}>{item.time}</div>
-                      </div>
-                      <span className="mac-pill" style={{ whiteSpace: 'nowrap', background: item.breachCount === 0 ? 'rgba(52,199,89,0.12)' : item.breachCount === null ? 'rgba(0,0,0,0.06)' : 'rgba(255,59,48,0.1)', color: item.breachCount === 0 ? '#1a7340' : item.breachCount === null ? '#6e6e73' : '#c0392b' }}>
-                        {item.breachCount === 0 ? '✅ Safe' : item.breachCount === null ? '❓ Unknown' : `🚨 ${item.breachCount.toLocaleString()} breaches`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="mac-card" style={{ padding: '24px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>📈 Security Awareness Stats</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                {[
-                  { val: '600M+', label: 'Passwords in Database' },
-                  { val: '15B+', label: 'Breached Records' },
-                  { val: '24/7', label: 'Cyber Attacks Active' },
-                  { val: '81%', label: 'Breaches Due to Weak Passwords' },
-                  { val: '70%', label: 'Reuse Passwords' },
-                  { val: '3min', label: 'Avg Password Crack Time' },
-                ].map((stat, i) => (
-                  <div key={i} style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', padding: '16px 10px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '22px', fontWeight: 700, color: '#0071e3', marginBottom: '5px' }}>{stat.val}</div>
-                    <div style={{ fontSize: '11px', color: '#6e6e73' }}>{stat.label}</div>
+            {historyNeedsSetup ? (
+              /* ===== HISTORY FIRST TIME SETUP ===== */
+              <div className="mac-card" style={{ padding: '32px' }}>
+                <div style={{ textAlign: 'center', maxWidth: '400px', margin: '0 auto' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔐</div>
+                  <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1d1d1f', marginBottom: '8px' }}>Setup History Password</h3>
+                  <p style={{ color: '#6e6e73', fontSize: '14px', marginBottom: '20px' }}>
+                    Create a password to protect your check history. All history data will be <strong>AES-256 encrypted</strong>.
+                  </p>
+
+                  <div style={{ background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.15)', borderRadius: '10px', padding: '14px', marginBottom: '20px', textAlign: 'left' }}>
+                    <p style={{ fontWeight: 700, color: '#c0392b', marginBottom: '8px', fontSize: '13px' }}>🛡️ SECURITY FEATURES:</p>
+                    <p style={{ fontSize: '12px', color: '#78350f', marginBottom: '4px' }}>🔒 Password stored as SHA-256 hash (unreadable)</p>
+                    <p style={{ fontSize: '12px', color: '#78350f', marginBottom: '4px' }}>🔐 History encrypted with AES-256-GCM</p>
+                    <p style={{ fontSize: '12px', color: '#78350f', marginBottom: '4px' }}>📸 3 wrong attempts = Photo capture + 60s lock</p>
+                    <p style={{ fontSize: '12px', color: '#78350f', marginBottom: '4px' }}>💣 5 wrong attempts = ALL HISTORY DESTROYED</p>
+                    <p style={{ fontSize: '12px', color: '#78350f' }}>🚫 Inspect Element se password NAHI dikhega</p>
                   </div>
-                ))}
+
+                  <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div>
+                      <label style={{ display: 'block', color: '#1d1d1f', fontWeight: 600, fontSize: '14px', marginBottom: '7px' }}>🔐 History Password (min 6 chars)</label>
+                      <input type="password" value={historySetupPassword} onChange={e => setHistorySetupPassword(e.target.value)} placeholder="Create your history password" className="mac-input" style={{ width: '100%', padding: '12px 14px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#1d1d1f', fontWeight: 600, fontSize: '14px', marginBottom: '7px' }}>🔐 Confirm Password</label>
+                      <input type="password" value={historySetupConfirm} onChange={e => setHistorySetupConfirm(e.target.value)} onKeyDown={e => e.key === 'Enter' && setupHistoryPassword()} placeholder="Confirm your password" className="mac-input" style={{ width: '100%', padding: '12px 14px' }} />
+                    </div>
+                    <button onClick={setupHistoryPassword} disabled={!historySetupPassword || !historySetupConfirm} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>
+                      Create History Password 🔐
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : !isHistoryUnlocked ? (
+              /* ===== HISTORY UNLOCK SCREEN ===== */
+              <div className="mac-card" style={{ padding: '32px' }}>
+                <div style={{ textAlign: 'center', maxWidth: '380px', margin: '0 auto' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔒</div>
+                  <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1d1d1f', marginBottom: '8px' }}>History Locked</h3>
+                  <p style={{ color: '#6e6e73', fontSize: '14px', marginBottom: '20px' }}>
+                    Enter your history password to view encrypted check history.
+                  </p>
+
+                  {historyLocked && (
+                    <div style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '2rem', marginBottom: '8px' }}>⏳</div>
+                      <p style={{ color: '#ff3b30', fontWeight: 700, fontSize: '16px' }}>LOCKED FOR {historyLockTimer}s</p>
+                      <p style={{ color: '#c0392b', fontSize: '12px', marginTop: '4px' }}>Too many wrong attempts. Please wait.</p>
+                    </div>
+                  )}
+
+                  <div style={{ position: 'relative', marginBottom: '12px' }}>
+                    <input
+                      type={showHistoryPassword ? 'text' : 'password'}
+                      value={historyAccessPassword}
+                      onChange={e => setHistoryAccessPassword(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && !historyLocked && unlockHistory()}
+                      placeholder="Enter history password"
+                      disabled={historyLocked}
+                      className="mac-input"
+                      style={{ width: '100%', padding: '13px 46px 13px 16px', textAlign: 'center', letterSpacing: '0.15em', fontSize: '16px', opacity: historyLocked ? 0.5 : 1 }}
+                    />
+                    <button onClick={() => setShowHistoryPassword(!showHistoryPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '18px' }}>
+                      {showHistoryPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
+
+                  <button onClick={unlockHistory} disabled={!historyAccessPassword || historyLocked} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>
+                    {historyLocked ? `⏳ Locked (${historyLockTimer}s)` : 'Unlock History 🔓'}
+                  </button>
+
+                  <div style={{ marginTop: '14px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <div key={i} style={{
+                        width: '12px', height: '12px', borderRadius: '50%',
+                        background: i <= historyFailedAttempts ? (i >= 3 ? '#ff3b30' : '#ff9500') : 'rgba(0,0,0,0.1)',
+                        transition: 'all 0.3s'
+                      }} />
+                    ))}
+                  </div>
+                  <p style={{ marginTop: '8px', fontSize: '12px', color: historyFailedAttempts >= 3 ? '#ff3b30' : '#6e6e73', fontWeight: historyFailedAttempts >= 3 ? 700 : 400 }}>
+                    {historyFailedAttempts === 0 ? 'Enter your password to unlock' :
+                     historyFailedAttempts < 3 ? `⚠️ ${historyFailedAttempts}/5 failed attempts` :
+                     `🚨 ${historyFailedAttempts}/5 - ${5 - historyFailedAttempts} more = DATA DESTROYED!`}
+                  </p>
+
+                  <div style={{ marginTop: '14px', background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.15)', borderRadius: '10px', padding: '12px' }}>
+                    <p style={{ color: '#c0392b', fontSize: '12px' }}>
+                      🛡️ <strong>Anti-Hack Protection:</strong> Password is SHA-256 hashed. History is AES-256 encrypted. 
+                      Inspect Element se <strong>KUCH NAHI</strong> dikhega. 5 wrong attempts = sab data destroy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ===== HISTORY UNLOCKED ===== */
+              <>
+                {/* History Header */}
+                <div className="mac-card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34c759', fontWeight: 600, fontSize: '14px' }}>
+                    <span style={{ fontSize: '18px' }}>🔓</span>
+                    <span>History Unlocked (AES-256 Encrypted)</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {history.length > 0 && (
+                      <button onClick={clearHistory} className="mac-danger-btn" style={{ fontSize: '12px', padding: '5px 12px' }}>
+                        🗑️ Clear All
+                      </button>
+                    )}
+                    <button onClick={lockHistory} className="mac-danger-btn">🔒 Lock History</button>
+                  </div>
+                </div>
+
+                {/* History List */}
+                <div className="mac-card" style={{ padding: '24px' }}>
+                  <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#1d1d1f', marginBottom: '18px' }}>📜 Check History ({history.length})</h3>
+                  {history.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '32px' }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📭</div>
+                      <p style={{ color: '#6e6e73' }}>No password checks yet!</p>
+                      <p style={{ color: '#a1a1aa', fontSize: '13px', marginTop: '8px' }}>Check passwords in the "Check" tab to see history here.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto' }}>
+                      {history.map((item, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: 'rgba(0,0,0,0.03)', borderRadius: '10px', border: '1px solid rgba(0,0,0,0.05)' }}>
+                          <div style={{ flex: 1, minWidth: 0, marginRight: '12px' }}>
+                            <div style={{ fontFamily: '"SF Mono", monospace', color: '#1d1d1f', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {item.password}
+                            </div>
+                            <div style={{ color: '#6e6e73', fontSize: '12px' }}>{item.time}</div>
+                          </div>
+                          <span className="mac-pill" style={{ whiteSpace: 'nowrap', background: item.breachCount === 0 ? 'rgba(52,199,89,0.12)' : item.breachCount === null ? 'rgba(0,0,0,0.06)' : 'rgba(255,59,48,0.1)', color: item.breachCount === 0 ? '#1a7340' : item.breachCount === null ? '#6e6e73' : '#c0392b' }}>
+                            {item.breachCount === 0 ? '✅ Safe' : item.breachCount === null ? '❓ Unknown' : `🚨 ${item.breachCount.toLocaleString()} breaches`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Security Stats */}
+                <div className="mac-card" style={{ padding: '24px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>📈 Security Awareness Stats</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                    {[
+                      { val: '600M+', label: 'Passwords in Database' },
+                      { val: '15B+', label: 'Breached Records' },
+                      { val: '24/7', label: 'Cyber Attacks Active' },
+                      { val: '81%', label: 'Breaches Due to Weak Passwords' },
+                      { val: '70%', label: 'Reuse Passwords' },
+                      { val: '3min', label: 'Avg Password Crack Time' },
+                    ].map((stat, i) => (
+                      <div key={i} style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', padding: '16px 10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 700, color: '#0071e3', marginBottom: '5px' }}>{stat.val}</div>
+                        <div style={{ fontSize: '11px', color: '#6e6e73' }}>{stat.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
