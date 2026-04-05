@@ -241,6 +241,170 @@ async function decryptData(encryptedStr, password) {
   return JSON.parse(new TextDecoder().decode(decrypted));
 }
 
+// ===== STEP 1: AUTO BACKUP TO INDEXEDDB FUNCTIONS =====
+function openBackupDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('PassGuardBackup', 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('backups')) {
+        db.createObjectStore('backups', { keyPath: 'key' });
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function saveBackupToIndexedDB() {
+  try {
+    const db = await openBackupDB();
+    const tx = db.transaction('backups', 'readwrite');
+    const store = tx.objectStore('backups');
+
+    const keysToBackup = [
+      'secure_vault_real',
+      'secure_vault_decoy',
+      'history_access_hash',
+      'passwordCheckHistory',
+      'intruder_logs',
+      'lastBackupReminder'
+    ];
+
+    for (const key of keysToBackup) {
+      const value = localStorage.getItem(key);
+      if (value) {
+        store.put({ key, value, timestamp: Date.now() });
+      }
+    }
+
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+
+    console.log('✅ Backup saved to IndexedDB');
+  } catch (err) {
+    console.error('Backup failed:', err);
+  }
+}
+
+async function restoreFromIndexedDB() {
+  try {
+    const db = await openBackupDB();
+    const tx = db.transaction('backups', 'readonly');
+    const store = tx.objectStore('backups');
+    const allRequest = store.getAll();
+
+    return new Promise((resolve, reject) => {
+      allRequest.onsuccess = () => {
+        const backups = allRequest.result;
+        if (backups && backups.length > 0) {
+          let restored = 0;
+          for (const backup of backups) {
+            if (backup.value && !localStorage.getItem(backup.key)) {
+              localStorage.setItem(backup.key, backup.value);
+              restored++;
+            }
+          }
+          resolve(restored);
+        } else {
+          resolve(0);
+        }
+      };
+      allRequest.onerror = () => reject(allRequest.error);
+    });
+  } catch (err) {
+    console.error('Restore failed:', err);
+    return 0;
+  }
+}
+
+function importFromJSONFile(file, masterPass) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+        if (file.name.endsWith('.enc')) {
+          const bytes = window.CryptoJS.AES.decrypt(content, masterPass);
+          const decrypted = bytes.toString(window.CryptoJS.enc.Utf8);
+          if (!decrypted) { reject('Wrong master password!'); return; }
+          const data = JSON.parse(decrypted);
+          resolve(data);
+        } else {
+          const data = JSON.parse(content);
+          resolve(data);
+        }
+      } catch (err) {
+        reject('Invalid file or wrong password!');
+      }
+    };
+    reader.onerror = () => reject('File read error!');
+    reader.readAsText(file);
+  });
+}
+
+function exportEncryptedBackup(vaultData, masterPassword) {
+  const encrypted = window.CryptoJS.AES.encrypt(
+    JSON.stringify(vaultData),
+    masterPassword
+  ).toString();
+  const blob = new Blob([encrypted], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PassGuard_Backup_${new Date().toISOString().split('T')[0]}.enc`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportFullBackup() {
+  const fullBackup = {};
+  const keysToBackup = [
+    'secure_vault_real',
+    'secure_vault_decoy',
+    'history_access_hash',
+    'passwordCheckHistory',
+    'intruder_logs',
+    'lastBackupReminder'
+  ];
+  for (const key of keysToBackup) {
+    const value = localStorage.getItem(key);
+    if (value) { fullBackup[key] = value; }
+  }
+  fullBackup._exportDate = new Date().toLocaleString();
+  fullBackup._version = '1.0';
+  const dataStr = "data:text/json;charset=utf-8," +
+    encodeURIComponent(JSON.stringify(fullBackup, null, 2));
+  const a = document.createElement('a');
+  a.href = dataStr;
+  a.download = `PassGuard_FULL_Backup_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+}
+
+function importFullBackup(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        let restored = 0;
+        for (const key in data) {
+          if (key.startsWith('_')) continue;
+          localStorage.setItem(key, data[key]);
+          restored++;
+        }
+        resolve(restored);
+      } catch (err) {
+        reject('Invalid backup file!');
+      }
+    };
+    reader.onerror = () => reject('File read error!');
+    reader.readAsText(file);
+  });
+}
+
 export default function PasswordBreachChecker() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -283,6 +447,14 @@ export default function PasswordBreachChecker() {
   const [historyPasswordKey, setHistoryPasswordKey] = useState('');
   const [showHistoryPassword, setShowHistoryPassword] = useState(false);
 
+  // ===== STEP 2: NEW STATES FOR BACKUP/RESTORE =====
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreFile, setRestoreFile] = useState(null);
+  const [restorePassword, setRestorePassword] = useState('');
+  const [restoreStatus, setRestoreStatus] = useState('');
+  const [dataLost, setDataLost] = useState(false);
+  const fileInputRef = useRef(null);
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -304,11 +476,36 @@ export default function PasswordBreachChecker() {
     return () => window.removeEventListener('keydown', handlePanic);
   }, []);
 
-  // ===== INIT =====
+  // ===== STEP 3: UPDATED INIT useEffect WITH AUTO-DETECT DATA LOSS =====
   useEffect(() => {
     const realVault = localStorage.getItem('secure_vault_real');
     const decoyVault = localStorage.getItem('secure_vault_decoy');
-    if (!realVault && !decoyVault) setNeedsSetup(true);
+
+    if (!realVault && !decoyVault) {
+      // Check if data was EVER saved (IndexedDB still has it?)
+      restoreFromIndexedDB().then((restored) => {
+        if (restored > 0) {
+          // Data was in IndexedDB — AUTO RESTORED!
+          alert('⚠️ localStorage was cleared!\n\n✅ Data AUTO-RESTORED from IndexedDB backup!\n\nYour vault is safe! 🔒');
+          window.location.reload();
+        } else {
+          // Check if this is genuinely first time or data loss
+          const hasEverSetup = localStorage.getItem('passguard_ever_setup');
+          if (!hasEverSetup) {
+            // First time user — show setup
+            setNeedsSetup(true);
+          } else {
+            // DATA WAS LOST! Show restore option
+            setDataLost(true);
+          }
+        }
+      });
+    } else {
+      // Data exists — save to IndexedDB as backup
+      saveBackupToIndexedDB();
+      // Mark that setup was done
+      localStorage.setItem('passguard_ever_setup', 'true');
+    }
 
     // Check if history password exists
     const historyHash = localStorage.getItem('history_password_hash');
@@ -385,7 +582,6 @@ export default function PasswordBreachChecker() {
     const hash = await sha256Hash(historySetupPassword);
     localStorage.setItem('history_password_hash', hash);
 
-    // Encrypt empty history with this password
     const encrypted = await encryptData([], historySetupPassword);
     localStorage.setItem('encrypted_check_history', encrypted);
 
@@ -407,7 +603,6 @@ export default function PasswordBreachChecker() {
     const inputHash = await sha256Hash(historyAccessPassword);
 
     if (inputHash === storedHash) {
-      // Correct password - decrypt history
       setHistoryFailedAttempts(0);
       setHistoryPasswordKey(historyAccessPassword);
 
@@ -426,16 +621,13 @@ export default function PasswordBreachChecker() {
       setIsHistoryUnlocked(true);
       setHistoryAccessPassword('');
     } else {
-      // Wrong password
       const newFails = historyFailedAttempts + 1;
       setHistoryFailedAttempts(newFails);
 
       if (newFails >= 5) {
-        // 5 failed attempts = WIPE ALL HISTORY DATA
         localStorage.removeItem('encrypted_check_history');
         localStorage.removeItem('history_password_hash');
 
-        // Log intruder attempt
         const historyLogs = JSON.parse(localStorage.getItem('history_intruder_logs') || '[]');
         historyLogs.unshift({ time: new Date().toLocaleString(), action: 'HISTORY WIPED - 5 failed attempts' });
         localStorage.setItem('history_intruder_logs', JSON.stringify(historyLogs));
@@ -445,7 +637,6 @@ export default function PasswordBreachChecker() {
         setHistoryFailedAttempts(0);
         alert('🚨 SECURITY BREACH!\n\n5 failed attempts detected.\n\n⚠️ ALL HISTORY DATA HAS BEEN PERMANENTLY DESTROYED.\n\n📸 Intruder photo captured.');
       } else if (newFails >= 3) {
-        // 3 failed = lock for 60 seconds + capture photo
         setHistoryLocked(true);
         setHistoryLockTimer(60);
         captureIntruder();
@@ -471,7 +662,6 @@ export default function PasswordBreachChecker() {
     const maskedPwd = pwd.substring(0, 3) + '•'.repeat(Math.max(0, pwd.length - 3));
     const newEntry = { password: maskedPwd, breachCount: count, time: new Date().toLocaleString() };
 
-    // If history is unlocked, update in memory + encrypt & save
     if (isHistoryUnlocked && historyPasswordKey) {
       const newHistory = [newEntry, ...history.slice(0, 49)];
       setHistory(newHistory);
@@ -482,7 +672,6 @@ export default function PasswordBreachChecker() {
         console.error('Failed to encrypt history');
       }
     } else if (historyPasswordKey) {
-      // History locked but key in memory (same session)
       const encryptedHistory = localStorage.getItem('encrypted_check_history');
       let currentHistory = [];
       if (encryptedHistory) {
@@ -496,11 +685,11 @@ export default function PasswordBreachChecker() {
         localStorage.setItem('encrypted_check_history', encrypted);
       } catch (e) {}
     }
-    // If no key at all, history entry is lost (security by design)
   };
 
   const isCryptoLoaded = () => typeof window.CryptoJS !== 'undefined';
 
+  // ===== STEP 5: UPDATED initializeDualVault WITH SETUP MARK + AUTO BACKUP =====
   const initializeDualVault = () => {
     if (!setupData.realPassword || !setupData.decoyPassword) return alert('Please fill in both passwords!');
     if (setupData.realPassword.length < 8 || setupData.decoyPassword.length < 8) return alert('Minimum 8 characters!');
@@ -521,6 +710,11 @@ export default function PasswordBreachChecker() {
     setVaultData(emptyVault);
     setVaultUnlocked(true);
     setShowUnlockWarning(true);
+
+    // ===== MARK SETUP DONE + AUTO BACKUP =====
+    localStorage.setItem('passguard_ever_setup', 'true');
+    saveBackupToIndexedDB();
+
     alert('✅ Dual Vault System Created!\n\n⚠️ IMPORTANT: Remember BOTH passwords!');
   };
 
@@ -574,11 +768,15 @@ export default function PasswordBreachChecker() {
     setMasterPassword('');
   };
 
+  // ===== STEP 4: UPDATED saveVault WITH AUTO BACKUP TO INDEXEDDB =====
   const saveVault = (data) => {
     const storageKey = activeVaultMode === 'decoy' ? 'secure_vault_decoy' : 'secure_vault_real';
     const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(data), masterPassword).toString();
     localStorage.setItem(storageKey, encrypted);
     setVaultData(data);
+
+    // ===== AUTO BACKUP TO INDEXEDDB =====
+    saveBackupToIndexedDB();
   };
 
   const lockVault = () => {
@@ -756,6 +954,185 @@ export default function PasswordBreachChecker() {
           <button onClick={() => { setIntruderAlert(null); setFailedAttempts(0); }} style={{ marginTop: '28px', padding: '12px 28px', background: '#fff', color: '#b00000', fontWeight: 700, border: 'none', borderRadius: '10px', fontSize: '15px', cursor: 'pointer' }}>
             Dismiss & Reset Interface
           </button>
+        </div>
+      )}
+
+      {/* ===== STEP 6: DATA LOSS RECOVERY MODAL ===== */}
+      {dataLost && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9997,
+          background: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(12px)',
+          display: 'flex', alignItems: 'center',
+          justifyContent: 'center', padding: '16px'
+        }}>
+          <div className="mac-card" style={{
+            maxWidth: '480px', width: '100%',
+            padding: '32px', textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '4rem', marginBottom: '12px' }}>⚠️</div>
+            <h2 style={{
+              fontSize: '22px', fontWeight: 700,
+              color: '#ff3b30', marginBottom: '10px'
+            }}>
+              Vault Data Not Found!
+            </h2>
+            <p style={{
+              color: '#6e6e73', fontSize: '14px',
+              marginBottom: '20px', lineHeight: 1.6
+            }}>
+              It seems your browser data was cleared or this is a new device.
+              Your encrypted vault data is no longer in localStorage.
+            </p>
+
+            <div style={{
+              background: 'rgba(52,199,89,0.08)',
+              border: '1px solid rgba(52,199,89,0.25)',
+              borderRadius: '10px', padding: '16px',
+              marginBottom: '16px', textAlign: 'left'
+            }}>
+              <p style={{
+                fontWeight: 700, color: '#1a7340',
+                fontSize: '14px', marginBottom: '8px'
+              }}>
+                ✅ Recovery Options:
+              </p>
+              <p style={{ fontSize: '13px', color: '#1a7340', marginBottom: '4px' }}>
+                📁 Import from JSON backup file
+              </p>
+              <p style={{ fontSize: '13px', color: '#1a7340', marginBottom: '4px' }}>
+                🔐 Import from encrypted .enc backup
+              </p>
+              <p style={{ fontSize: '13px', color: '#1a7340' }}>
+                🆕 Or start fresh with a new vault
+              </p>
+            </div>
+
+            {restoreStatus && (
+              <div style={{
+                background: restoreStatus.includes('✅')
+                  ? 'rgba(52,199,89,0.1)' : 'rgba(255,59,48,0.1)',
+                border: `1px solid ${restoreStatus.includes('✅')
+                  ? 'rgba(52,199,89,0.3)' : 'rgba(255,59,48,0.3)'}`,
+                borderRadius: '8px', padding: '10px',
+                marginBottom: '12px', fontSize: '13px',
+                color: restoreStatus.includes('✅') ? '#1a7340' : '#c0392b',
+                fontWeight: 600
+              }}>
+                {restoreStatus}
+              </div>
+            )}
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".json,.enc"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files[0]) {
+                  setRestoreFile(e.target.files[0]);
+                }
+              }}
+            />
+
+            {!restoreFile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mac-btn-primary"
+                  style={{ width: '100%', padding: '13px', fontSize: '15px' }}
+                >
+                  📁 Select Backup File (.json or .enc)
+                </button>
+                <button
+                  onClick={() => {
+                    setDataLost(false);
+                    setNeedsSetup(true);
+                    localStorage.removeItem('passguard_ever_setup');
+                  }}
+                  className="mac-secondary-btn"
+                  style={{ width: '100%', padding: '12px' }}
+                >
+                  🆕 Start Fresh (New Vault)
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{
+                  background: 'rgba(0,113,227,0.06)',
+                  border: '1px solid rgba(0,113,227,0.15)',
+                  borderRadius: '8px', padding: '10px',
+                  fontSize: '13px', color: '#0055b3'
+                }}>
+                  📎 Selected: <strong>{restoreFile.name}</strong>
+                  ({(restoreFile.size / 1024).toFixed(1)} KB)
+                </div>
+
+                {restoreFile.name.endsWith('.enc') && (
+                  <input
+                    type="password"
+                    placeholder="Enter master password to decrypt"
+                    value={restorePassword}
+                    onChange={(e) => setRestorePassword(e.target.value)}
+                    className="mac-input"
+                    style={{
+                      width: '100%', padding: '12px',
+                      textAlign: 'center', fontSize: '15px'
+                    }}
+                  />
+                )}
+
+                <button
+                  onClick={async () => {
+                    try {
+                      setRestoreStatus('⏳ Restoring...');
+
+                      if (restoreFile.name.endsWith('.enc')) {
+                        if (!restorePassword) {
+                          setRestoreStatus('❌ Enter master password!');
+                          return;
+                        }
+                        const data = await importFromJSONFile(restoreFile, restorePassword);
+                        const encrypted = window.CryptoJS.AES.encrypt(
+                          JSON.stringify(data), restorePassword
+                        ).toString();
+                        localStorage.setItem('secure_vault_real', encrypted);
+                        localStorage.setItem('passguard_ever_setup', 'true');
+                        saveBackupToIndexedDB();
+                        setRestoreStatus('✅ Vault restored successfully!');
+                        setTimeout(() => window.location.reload(), 1500);
+                      } else {
+                        const restored = await importFullBackup(restoreFile);
+                        localStorage.setItem('passguard_ever_setup', 'true');
+                        saveBackupToIndexedDB();
+                        setRestoreStatus(`✅ Restored ${restored} items successfully!`);
+                        setTimeout(() => window.location.reload(), 1500);
+                      }
+
+                    } catch (err) {
+                      setRestoreStatus(`❌ ${err}`);
+                    }
+                  }}
+                  className="mac-btn-primary"
+                  style={{ width: '100%', padding: '13px', fontSize: '15px' }}
+                >
+                  🔐 Restore Vault Now
+                </button>
+
+                <button
+                  onClick={() => {
+                    setRestoreFile(null);
+                    setRestorePassword('');
+                    setRestoreStatus('');
+                  }}
+                  className="mac-secondary-btn"
+                  style={{ width: '100%', padding: '10px' }}
+                >
+                  ← Back
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1064,6 +1441,8 @@ export default function PasswordBreachChecker() {
                       {intruderLogs.length > 0 && <span style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ff3b30', color: '#fff', fontSize: '10px', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{intruderLogs.length}</span>}
                     </button>
                     <button onClick={exportVault} className="mac-success-btn">📤 Export Backup</button>
+                    {/* ===== STEP 7: Full Backup button ===== */}
+                    <button onClick={exportFullBackup} className="mac-secondary-btn">💾 Full Backup</button>
                     <button onClick={lockVault} className="mac-danger-btn">🔒 Lock Vault</button>
                   </div>
                 </div>
@@ -1200,7 +1579,6 @@ export default function PasswordBreachChecker() {
         {activeTab === 'history' && (
           <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {historyNeedsSetup ? (
-              /* ===== HISTORY FIRST TIME SETUP ===== */
               <div className="mac-card" style={{ padding: '32px' }}>
                 <div style={{ textAlign: 'center', maxWidth: '400px', margin: '0 auto' }}>
                   <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔐</div>
@@ -1234,7 +1612,6 @@ export default function PasswordBreachChecker() {
                 </div>
               </div>
             ) : !isHistoryUnlocked ? (
-              /* ===== HISTORY UNLOCK SCREEN ===== */
               <div className="mac-card" style={{ padding: '32px' }}>
                 <div style={{ textAlign: 'center', maxWidth: '380px', margin: '0 auto' }}>
                   <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔒</div>
@@ -1295,9 +1672,7 @@ export default function PasswordBreachChecker() {
                 </div>
               </div>
             ) : (
-              /* ===== HISTORY UNLOCKED ===== */
               <>
-                {/* History Header */}
                 <div className="mac-card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34c759', fontWeight: 600, fontSize: '14px' }}>
                     <span style={{ fontSize: '18px' }}>🔓</span>
@@ -1313,7 +1688,6 @@ export default function PasswordBreachChecker() {
                   </div>
                 </div>
 
-                {/* History List */}
                 <div className="mac-card" style={{ padding: '24px' }}>
                   <h3 style={{ fontSize: '17px', fontWeight: 600, color: '#1d1d1f', marginBottom: '18px' }}>📜 Check History ({history.length})</h3>
                   {history.length === 0 ? (
@@ -1341,7 +1715,6 @@ export default function PasswordBreachChecker() {
                   )}
                 </div>
 
-                {/* Security Stats */}
                 <div className="mac-card" style={{ padding: '24px' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d1d1f', marginBottom: '16px' }}>📈 Security Awareness Stats</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
