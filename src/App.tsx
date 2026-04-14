@@ -1,4 +1,13 @@
+
 import React, { useState, useEffect, useRef } from 'react';
+
+// ===== SAFE STORAGE WRAPPER (works even if localStorage is blocked) =====
+const _memStore = {};
+const safeStorage = {
+  getItem: (k) => { try { return localStorage.getItem(k); } catch(_) { return (_memStore[k] !== undefined) ? _memStore[k] : null; } },
+  setItem: (k, v) => { try { localStorage.setItem(k, v); } catch(_) {} _memStore[k] = String(v); },
+  removeItem: (k) => { try { localStorage.removeItem(k); } catch(_) {} delete _memStore[k]; },
+};
 
 // Common passwords list (top 100)
 const COMMON_PASSWORDS = [
@@ -172,12 +181,15 @@ async function checkGoogleSafeBrowsing(url) {
     ];
     for (const endpoint of endpoints) {
       try {
+        const _ctrl = new AbortController();
+        const _timer = setTimeout(() => _ctrl.abort(), 5000);
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(5000),
+          signal: _ctrl.signal,
         });
+        clearTimeout(_timer);
         if (!res.ok) continue;
         const data = await res.json();
         if (data.matches && data.matches.length > 0) {
@@ -451,21 +463,24 @@ async function decryptData(encryptedStr, password) {
 // ===== STEP 1: AUTO BACKUP TO INDEXEDDB FUNCTIONS =====
 function openBackupDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('PassGuardBackup', 1);
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('backups')) {
-        db.createObjectStore('backups', { keyPath: 'key' });
-      }
-    };
-    request.onsuccess = (e) => resolve(e.target.result);
-    request.onerror = (e) => reject(e.target.error);
+    try {
+      const request = indexedDB.open('PassGuardBackup', 1);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('backups')) {
+          db.createObjectStore('backups', { keyPath: 'key' });
+        }
+      };
+      request.onsuccess = (e) => resolve(e.target.result);
+      request.onerror = (e) => reject(e.target.error);
+    } catch(_) { reject(_); }
   });
 }
 
 async function saveBackupToIndexedDB() {
   try {
-    const db = await openBackupDB();
+    const db = await openBackupDB().catch(() => null);
+    if (!db) return;
     const tx = db.transaction('backups', 'readwrite');
     const store = tx.objectStore('backups');
 
@@ -475,11 +490,14 @@ async function saveBackupToIndexedDB() {
       'history_access_hash',
       'passwordCheckHistory',
       'intruder_logs',
-      'lastBackupReminder'
+      'lastBackupReminder',
+      'encrypted_notes_data',
+      'notes_password_hash',
     ];
 
     for (const key of keysToBackup) {
-      const value = localStorage.getItem(key);
+      let value = null;
+      value = safeStorage.getItem(key);
       if (value) {
         store.put({ key, value, timestamp: Date.now() });
       }
@@ -498,7 +516,8 @@ async function saveBackupToIndexedDB() {
 
 async function restoreFromIndexedDB() {
   try {
-    const db = await openBackupDB();
+    const db = await openBackupDB().catch(() => null);
+    if (!db) return 0;
     const tx = db.transaction('backups', 'readonly');
     const store = tx.objectStore('backups');
     const allRequest = store.getAll();
@@ -509,9 +528,9 @@ async function restoreFromIndexedDB() {
         if (backups && backups.length > 0) {
           let restored = 0;
           for (const backup of backups) {
-            if (backup.value && !localStorage.getItem(backup.key)) {
-              localStorage.setItem(backup.key, backup.value);
-              restored++;
+            const _existing = safeStorage.getItem(backup.key);
+            if (backup.value && !_existing) {
+              safeStorage.setItem(backup.key, backup.value); restored++;
             }
           }
           resolve(restored);
@@ -574,10 +593,12 @@ function exportFullBackup() {
     'history_access_hash',
     'passwordCheckHistory',
     'intruder_logs',
-    'lastBackupReminder'
+    'lastBackupReminder',
+    'encrypted_notes_data',
+    'notes_password_hash',
   ];
   for (const key of keysToBackup) {
-    const value = localStorage.getItem(key);
+    const value = safeStorage.getItem(key);
     if (value) { fullBackup[key] = value; }
   }
   fullBackup._exportDate = new Date().toLocaleString();
@@ -599,8 +620,7 @@ function importFullBackup(file) {
         let restored = 0;
         for (const key in data) {
           if (key.startsWith('_')) continue;
-          localStorage.setItem(key, data[key]);
-          restored++;
+          safeStorage.setItem(key, data[key]); restored++;
         }
         resolve(restored);
       } catch (err) {
@@ -986,6 +1006,203 @@ function HackerAttackScene({ dm }) {
   );
 }
 
+
+// ══════════════════════════════════════════════════
+// CODE RUNNER BLOCK COMPONENT
+// ══════════════════════════════════════════════════
+const SUPPORTED_LANGS = [
+  { id: 'javascript', label: 'JavaScript', icon: '⚡' },
+  { id: 'python',     label: 'Python (simulated)', icon: '🐍' },
+  { id: 'html',       label: 'HTML Preview', icon: '🌐' },
+  { id: 'css',        label: 'CSS Preview', icon: '🎨' },
+  { id: 'json',       label: 'JSON', icon: '📦' },
+  { id: 'markdown',   label: 'Markdown', icon: '📝' },
+  { id: 'typescript', label: 'TypeScript', icon: '🔷' },
+  { id: 'bash',       label: 'Bash (simulated)', icon: '💻' },
+  { id: 'sql',        label: 'SQL (simulated)', icon: '🗄️' },
+  { id: 'cpp',        label: 'C++', icon: '⚙️' },
+  { id: 'java',       label: 'Java', icon: '☕' },
+  { id: 'rust',       label: 'Rust', icon: '🦀' },
+];
+
+function CodeBlock({ dm, onRemove }) {
+  const [lang, setLang] = React.useState('javascript');
+  const [codeVal, setCodeVal] = React.useState('');
+  const [output, setOutput] = React.useState('');
+  const [isError, setIsError] = React.useState(false);
+  const [running, setRunning] = React.useState(false);
+  const [showOutput, setShowOutput] = React.useState(false);
+  const taRef = React.useRef(null);
+
+  const runCode = () => {
+    setRunning(true);
+    setShowOutput(true);
+    setIsError(false);
+    setOutput('');
+
+    setTimeout(() => {
+      try {
+        if (lang === 'javascript' || lang === 'typescript') {
+          const logs = [];
+          const fakeConsole = {
+            log: (...a) => logs.push(a.map(x => typeof x === 'object' ? JSON.stringify(x, null, 2) : String(x)).join(' ')),
+            error: (...a) => logs.push('❌ ' + a.map(String).join(' ')),
+            warn: (...a) => logs.push('⚠️ ' + a.map(String).join(' ')),
+            info: (...a) => logs.push('ℹ️ ' + a.map(String).join(' ')),
+          };
+          const fn = new Function('console', codeVal);
+          fn(fakeConsole);
+          setOutput(logs.length ? logs.join('\n') : '✅ Executed successfully (no output)');
+          setIsError(false);
+        } else if (lang === 'json') {
+          const parsed = JSON.parse(codeVal);
+          setOutput(JSON.stringify(parsed, null, 2));
+          setIsError(false);
+        } else if (lang === 'html') {
+          setOutput('__HTML_PREVIEW__:' + codeVal);
+          setIsError(false);
+        } else if (lang === 'python') {
+          // Simulate Python output for common patterns
+          const lines = codeVal.split('\n');
+          const out = [];
+          for (const line of lines) {
+            const t = line.trim();
+            const pm = t.match(/^print\s*\((.+)\)$/);
+            if (pm) {
+              try { out.push(String(eval(pm[1].replace(/True/g,'true').replace(/False/g,'false').replace(/None/g,'null')))); }
+              catch { out.push(pm[1].replace(/['"]/g,'')); }
+            }
+          }
+          setOutput(out.length ? out.join('\n') : '🐍 Python simulated. Only print() shown here.');
+          setIsError(false);
+        } else if (lang === 'bash') {
+          const cmds = codeVal.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
+          const out = cmds.map(c => {
+            if (c.startsWith('echo ')) return c.slice(5).replace(/['"]/g,'');
+            if (c === 'pwd') return '/home/user';
+            if (c === 'ls') return 'file1.txt  file2.js  folder/';
+            if (c === 'date') return new Date().toString();
+            if (c === 'whoami') return 'user';
+            return '$ ' + c + ': command simulated';
+          });
+          setOutput(out.join('\n'));
+          setIsError(false);
+        } else if (lang === 'sql') {
+          if (/select/i.test(codeVal)) {
+            setOutput('id | name       | value\n---|-----------|------\n 1 | Sample Row | 42\n 2 | Demo Data  | 99\n(2 rows)');
+          } else if (/insert|update|delete/i.test(codeVal)) {
+            setOutput('Query OK, 1 row affected');
+          } else {
+            setOutput('SQL simulated. SELECT queries show sample data.');
+          }
+          setIsError(false);
+        } else {
+          setOutput('ℹ️ ' + SUPPORTED_LANGS.find(l => l.id === lang).label + ' — view only (no runtime available)');
+          setIsError(false);
+        }
+      } catch (err) {
+        setOutput(err.toString());
+        setIsError(true);
+      }
+      setRunning(false);
+    }, 300);
+  };
+
+  const handleTab = (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ta = taRef.current;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const newVal = codeVal.substring(0, start) + '  ' + codeVal.substring(end);
+      setCodeVal(newVal);
+      setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + 2; }, 0);
+    }
+  };
+
+  const cardBg = dm ? 'rgba(10,10,20,0.95)' : 'rgba(248,248,252,0.98)';
+  const borderC = dm ? 'rgba(168,85,247,0.3)' : 'rgba(124,58,237,0.2)';
+  const textC = dm ? '#e2e8f0' : '#1d1d1f';
+  const monoFont = "'JetBrains Mono', 'Fira Code', monospace";
+
+  return (
+    <div style={{ border: '1.5px solid ' + borderC, borderRadius: '12px', overflow: 'hidden', marginBottom: '8px', background: cardBg }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: dm ? 'rgba(168,85,247,0.1)' : 'rgba(124,58,237,0.06)', borderBottom: '1px solid ' + borderC }}>
+        <select value={lang} onChange={e => setLang(e.target.value)}
+          style={{ background: dm ? 'rgba(0,0,0,0.4)' : '#fff', border: '1px solid ' + borderC, borderRadius: '6px', color: dm ? '#a855f7' : '#7c3aed', fontSize: '12px', padding: '3px 8px', fontFamily: monoFont, fontWeight: 700, cursor: 'pointer', outline: 'none' }}>
+          {SUPPORTED_LANGS.map(l => <option key={l.id} value={l.id}>{l.icon} {l.label}</option>)}
+        </select>
+        <span style={{ flex: 1, fontSize: '11px', color: dm ? 'rgba(255,255,255,0.3)' : '#999', fontFamily: monoFont }}>
+          {SUPPORTED_LANGS.find(l => l.id === lang).icon} Code Block
+        </span>
+        <button onMouseDown={e => e.preventDefault()} onClick={runCode} disabled={running || !codeVal.trim()}
+          style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '12px', fontWeight: 700, cursor: running || !codeVal.trim() ? 'not-allowed' : 'pointer', opacity: running || !codeVal.trim() ? 0.5 : 1, fontFamily: monoFont }}>
+          {running ? '⏳ Running...' : '▶ Run'}
+        </button>
+        {onRemove && <button onMouseDown={e => e.preventDefault()} onClick={onRemove}
+          style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.3)', color: '#ff3b30', borderRadius: '6px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}>✕</button>}
+      </div>
+      {/* Code textarea */}
+      <textarea ref={taRef} value={codeVal} onChange={e => setCodeVal(e.target.value)} onKeyDown={handleTab}
+        placeholder={'// Write your ' + (SUPPORTED_LANGS.find(l => l.id === lang).label) + ' code here...'}
+        rows={8}
+        style={{ width: '100%', background: dm ? 'rgba(0,0,0,0.6)' : 'rgba(248,248,255,1)', color: dm ? '#a855f7' : '#3b0764', border: 'none', outline: 'none', padding: '14px 16px', fontFamily: monoFont, fontSize: '13px', lineHeight: 1.7, resize: 'vertical', boxSizing: 'border-box', caretColor: dm ? '#00c8ff' : '#7c3aed', tabSize: 2 }}
+      />
+      {/* Output */}
+      {showOutput && (
+        <div style={{ borderTop: '1px solid ' + borderC }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: isError ? 'rgba(255,59,48,0.08)' : 'rgba(52,199,89,0.06)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: isError ? '#ff3b30' : '#34c759', fontFamily: monoFont }}>
+              {isError ? '❌ Error' : '✅ Output'}
+            </span>
+            <button onMouseDown={e => e.preventDefault()} onClick={() => setShowOutput(false)}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: dm ? 'rgba(255,255,255,0.4)' : '#999', cursor: 'pointer', fontSize: '12px' }}>✕</button>
+          </div>
+          {output.startsWith('__HTML_PREVIEW__:') ? (
+            <iframe srcDoc={output.slice(17)} style={{ width: '100%', height: '200px', border: 'none', background: '#fff' }} title="HTML Preview" sandbox="allow-scripts" />
+          ) : (
+            <pre style={{ margin: 0, padding: '12px 16px', fontFamily: monoFont, fontSize: '12px', color: isError ? '#ff3b30' : (dm ? '#00ff88' : '#065f46'), background: dm ? 'rgba(0,0,0,0.5)' : 'rgba(240,253,244,1)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {output}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════
+// STANDALONE NOTE EDITOR — FULL FEATURED
+// ══════════════════════════════════════════════════
+function NoteEditor({ editorRef, initialContent, onInput, onBlur, dm }) {
+  const prevContent = React.useRef(null);
+
+  React.useEffect(() => {
+    if (editorRef.current && prevContent.current !== initialContent) {
+      editorRef.current.innerHTML = initialContent || '';
+      prevContent.current = initialContent;
+    }
+  }, [initialContent]);
+
+  return (
+    <div
+      ref={editorRef}
+      contentEditable={true}
+      suppressContentEditableWarning={true}
+      className="note-editor"
+      onInput={e => {
+        const html = e.currentTarget.innerHTML;
+        prevContent.current = html;
+        onInput(html);
+      }}
+      onBlur={onBlur}
+      data-placeholder="Start typing your note... Use the toolbar above for rich formatting ✨"
+      style={{ position: 'relative', minHeight: '420px' }}
+    />
+  );
+}
+
 export default function PasswordBreachChecker() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -1028,6 +1245,28 @@ export default function PasswordBreachChecker() {
   const [historyPasswordKey, setHistoryPasswordKey] = useState('');
   const [showHistoryPassword, setShowHistoryPassword] = useState(false);
 
+  // ===== NOTES VAULT STATES =====
+  const [notesNeedsSetup, setNotesNeedsSetup] = useState(false);
+  const [notesUnlocked, setNotesUnlocked] = useState(false);
+  const [notesPasswordKey, setNotesPasswordKey] = useState('');
+  const [notesAccessPassword, setNotesAccessPassword] = useState('');
+  const [notesShowPassword, setNotesShowPassword] = useState(false);
+  const [notesSetupPass, setNotesSetupPass] = useState('');
+  const [notesSetupConfirm, setNotesSetupConfirm] = useState('');
+  const [notesFailedAttempts, setNotesFailedAttempts] = useState(0);
+  const [notesLocked, setNotesLocked] = useState(false);
+  const [notesLockTimer, setNotesLockTimer] = useState(0);
+  const [notes, setNotes] = useState([]);
+  const [activeNoteId, setActiveNoteId] = useState(null);
+  const [noteEditorContent, setNoteEditorContent] = useState('');
+  const [noteEditorTitle, setNoteEditorTitle] = useState('');
+  const [noteEditorColor, setNoteEditorColor] = useState('#ffffff');
+  const [noteEditorTag, setNoteEditorTag] = useState('');
+  const [noteSearchQuery, setNoteSearchQuery] = useState('');
+  const [noteView, setNoteView] = useState('list'); // 'list' | 'editor'
+  const [noteCopied, setNoteCopied] = useState(false);
+  const noteEditorRef = useRef(null);
+
   // ===== STEP 2: NEW STATES FOR BACKUP/RESTORE =====
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [restoreFile, setRestoreFile] = useState(null);
@@ -1038,24 +1277,44 @@ export default function PasswordBreachChecker() {
 
   // ===== DARK MODE STATE =====
   const [darkMode, setDarkMode] = useState(() => {
-    return localStorage.getItem('passguard_darkmode') === 'true';
+    try { return safeStorage.getItem('passguard_darkmode') === 'true'; } catch { return false; }
   });
+  const [cryptoReady, setCryptoReady] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+
+  // ===== LOAD CRYPTO-JS DYNAMICALLY =====
+  useEffect(() => {
+    if (typeof window !== 'undefined' && typeof window.CryptoJS !== 'undefined') {
+      setCryptoReady(true); return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js';
+    script.async = true;
+    script.onload = () => setCryptoReady(true);
+    script.onerror = () => console.error('CryptoJS failed to load');
+    document.head.appendChild(script);
+    return () => { try { document.head.removeChild(script); } catch(_) {} };
+  }, []);
 
   // ===== PANIC KEY =====
   useEffect(() => {
     const handlePanic = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === '9') {
-        localStorage.setItem('secure_vault_real', '00000000000'); localStorage.removeItem('secure_vault_real');
-        localStorage.setItem('secure_vault_decoy', '00000000000'); localStorage.removeItem('secure_vault_decoy');
-        localStorage.removeItem('intruder_logs');
-        localStorage.removeItem('history_password_hash');
-        localStorage.removeItem('encrypted_check_history');
-        localStorage.removeItem('history_intruder_logs');
-        document.body.innerHTML = '<div style="background:#fff; color:#ef4444; height:100vh; display:flex; align-items:center; justify-content:center; font-size:2rem; font-family:sans-serif; font-weight:bold;">🚨 ALL DATA PURGED. SYSTEM SECURED.</div>';
-        setTimeout(() => window.location.href = 'https://www.google.com', 1500);
+        safeStorage.setItem('secure_vault_real', '00000000000'); safeStorage.removeItem('secure_vault_real');
+        safeStorage.setItem('secure_vault_decoy', '00000000000'); safeStorage.removeItem('secure_vault_decoy');
+        safeStorage.removeItem('intruder_logs');
+        safeStorage.removeItem('history_password_hash');
+        safeStorage.removeItem('encrypted_check_history');
+        safeStorage.removeItem('history_intruder_logs');
+        safeStorage.removeItem('encrypted_notes_data');
+        safeStorage.removeItem('notes_password_hash');
+        const div = document.createElement('div');
+        div.style.cssText = 'background:#fff;color:#ef4444;height:100vh;display:flex;align-items:center;justify-content:center;font-size:2rem;font-family:sans-serif;font-weight:bold;position:fixed;inset:0;z-index:99999';
+        div.textContent = '🚨 ALL DATA PURGED. SYSTEM SECURED.';
+        document.body.appendChild(div);
+        setTimeout(() => { try { window.location.href = 'https://www.google.com'; } catch(_) {} }, 1500);
       }
     };
     window.addEventListener('keydown', handlePanic);
@@ -1064,8 +1323,8 @@ export default function PasswordBreachChecker() {
 
   // ===== STEP 3: UPDATED INIT useEffect WITH AUTO-DETECT DATA LOSS =====
   useEffect(() => {
-    const realVault = localStorage.getItem('secure_vault_real');
-    const decoyVault = localStorage.getItem('secure_vault_decoy');
+    const realVault = safeStorage.getItem('secure_vault_real');
+    const decoyVault = safeStorage.getItem('secure_vault_decoy');
 
     if (!realVault && !decoyVault) {
       // Check if data was EVER saved (IndexedDB still has it?)
@@ -1076,7 +1335,7 @@ export default function PasswordBreachChecker() {
           window.location.reload();
         } else {
           // Check if this is genuinely first time or data loss
-          const hasEverSetup = localStorage.getItem('passguard_ever_setup');
+          const hasEverSetup = safeStorage.getItem('passguard_ever_setup');
           if (!hasEverSetup) {
             // First time user — show setup
             setNeedsSetup(true);
@@ -1090,22 +1349,40 @@ export default function PasswordBreachChecker() {
       // Data exists — save to IndexedDB as backup
       saveBackupToIndexedDB();
       // Mark that setup was done
-      localStorage.setItem('passguard_ever_setup', 'true');
+      safeStorage.setItem('passguard_ever_setup', 'true');
     }
 
     // Check if history password exists
-    const historyHash = localStorage.getItem('history_password_hash');
+    const historyHash = safeStorage.getItem('history_password_hash');
     if (!historyHash) {
       setHistoryNeedsSetup(true);
     }
 
-    const savedLogs = localStorage.getItem('intruder_logs');
+    // Check if notes password exists
+    const notesHash = safeStorage.getItem('notes_password_hash');
+    if (!notesHash) {
+      setNotesNeedsSetup(true);
+    }
+
+    const savedLogs = safeStorage.getItem('intruder_logs');
     if (savedLogs) { try { setIntruderLogs(JSON.parse(savedLogs)); } catch (e) {} }
-    const savedReminder = localStorage.getItem('lastBackupReminder');
+    const savedReminder = safeStorage.getItem('lastBackupReminder');
     if (savedReminder) setLastBackupReminder(parseInt(savedReminder));
   }, []);
 
-  // ===== HISTORY LOCKOUT TIMER =====
+  // ===== NOTES LOCKOUT TIMER =====
+  useEffect(() => {
+    let interval;
+    if (notesLocked && notesLockTimer > 0) {
+      interval = setInterval(() => {
+        setNotesLockTimer(prev => {
+          if (prev <= 1) { setNotesLocked(false); setNotesFailedAttempts(0); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [notesLocked, notesLockTimer]);
   useEffect(() => {
     let interval;
     if (historyLocked && historyLockTimer > 0) {
@@ -1166,10 +1443,10 @@ export default function PasswordBreachChecker() {
     }
 
     const hash = await sha256Hash(historySetupPassword);
-    localStorage.setItem('history_password_hash', hash);
+    safeStorage.setItem('history_password_hash', hash);
 
     const encrypted = await encryptData([], historySetupPassword);
-    localStorage.setItem('encrypted_check_history', encrypted);
+    safeStorage.setItem('encrypted_check_history', encrypted);
 
     setHistoryNeedsSetup(false);
     setHistoryPasswordKey(historySetupPassword);
@@ -1185,14 +1462,14 @@ export default function PasswordBreachChecker() {
     if (historyLocked) return;
     if (!historyAccessPassword) return;
 
-    const storedHash = localStorage.getItem('history_password_hash');
+    const storedHash = safeStorage.getItem('history_password_hash');
     const inputHash = await sha256Hash(historyAccessPassword);
 
     if (inputHash === storedHash) {
       setHistoryFailedAttempts(0);
       setHistoryPasswordKey(historyAccessPassword);
 
-      const encryptedHistory = localStorage.getItem('encrypted_check_history');
+      const encryptedHistory = safeStorage.getItem('encrypted_check_history');
       if (encryptedHistory) {
         try {
           const decrypted = await decryptData(encryptedHistory, historyAccessPassword);
@@ -1211,12 +1488,12 @@ export default function PasswordBreachChecker() {
       setHistoryFailedAttempts(newFails);
 
       if (newFails >= 5) {
-        localStorage.removeItem('encrypted_check_history');
-        localStorage.removeItem('history_password_hash');
+        safeStorage.removeItem('encrypted_check_history');
+        safeStorage.removeItem('history_password_hash');
 
-        const historyLogs = JSON.parse(localStorage.getItem('history_intruder_logs') || '[]');
+        const historyLogs = JSON.parse(safeStorage.getItem('history_intruder_logs') || '[]');
         historyLogs.unshift({ time: new Date().toLocaleString(), action: 'HISTORY WIPED - 5 failed attempts' });
-        localStorage.setItem('history_intruder_logs', JSON.stringify(historyLogs));
+        safeStorage.setItem('history_intruder_logs', JSON.stringify(historyLogs));
 
         captureIntruder();
         setHistoryNeedsSetup(true);
@@ -1253,12 +1530,12 @@ export default function PasswordBreachChecker() {
       setHistory(newHistory);
       try {
         const encrypted = await encryptData(newHistory, historyPasswordKey);
-        localStorage.setItem('encrypted_check_history', encrypted);
+        safeStorage.setItem('encrypted_check_history', encrypted);
       } catch (e) {
         console.error('Failed to encrypt history');
       }
     } else if (historyPasswordKey) {
-      const encryptedHistory = localStorage.getItem('encrypted_check_history');
+      const encryptedHistory = safeStorage.getItem('encrypted_check_history');
       let currentHistory = [];
       if (encryptedHistory) {
         try {
@@ -1268,15 +1545,16 @@ export default function PasswordBreachChecker() {
       const newHistory = [newEntry, ...currentHistory.slice(0, 49)];
       try {
         const encrypted = await encryptData(newHistory, historyPasswordKey);
-        localStorage.setItem('encrypted_check_history', encrypted);
+        safeStorage.setItem('encrypted_check_history', encrypted);
       } catch (e) {}
     }
   };
 
-  const isCryptoLoaded = () => typeof window.CryptoJS !== 'undefined';
+  const isCryptoLoaded = () => cryptoReady && typeof window.CryptoJS !== 'undefined';
 
   // ===== STEP 5: UPDATED initializeDualVault WITH SETUP MARK + AUTO BACKUP =====
   const initializeDualVault = () => {
+    if (!isCryptoLoaded()) return alert('⏳ Encryption library loading... Please wait a moment and try again.');
     if (!setupData.realPassword || !setupData.decoyPassword) return alert('Please fill in both passwords!');
     if (setupData.realPassword.length < 8 || setupData.decoyPassword.length < 8) return alert('Minimum 8 characters!');
     if (setupData.realPassword === setupData.decoyPassword) return alert('Real and Decoy must be DIFFERENT!');
@@ -1288,8 +1566,8 @@ export default function PasswordBreachChecker() {
       { id: '2', site: 'Gmail', username: 'johndoe@gmail.com', password: 'MyGmail2024', category: 'Email', notes: 'Primary email', createdAt: new Date().toLocaleString(), favorite: false }
     ];
     const encryptedDecoy = window.CryptoJS.AES.encrypt(JSON.stringify(decoyVault), setupData.decoyPassword).toString();
-    localStorage.setItem('secure_vault_real', encryptedReal);
-    localStorage.setItem('secure_vault_decoy', encryptedDecoy);
+    safeStorage.setItem('secure_vault_real', encryptedReal);
+    safeStorage.setItem('secure_vault_decoy', encryptedDecoy);
     setNeedsSetup(false);
     setMasterPassword(setupData.realPassword);
     setActiveVaultMode('real');
@@ -1298,7 +1576,7 @@ export default function PasswordBreachChecker() {
     setShowUnlockWarning(true);
 
     // ===== MARK SETUP DONE + AUTO BACKUP =====
-    localStorage.setItem('passguard_ever_setup', 'true');
+    safeStorage.setItem('passguard_ever_setup', 'true');
     saveBackupToIndexedDB();
 
     alert('✅ Dual Vault System Created!\n\n⚠️ IMPORTANT: Remember BOTH passwords!');
@@ -1313,13 +1591,13 @@ export default function PasswordBreachChecker() {
         setTimeout(() => {
           if (canvasRef.current && videoRef.current) {
             const ctx = canvasRef.current.getContext('2d');
-            ctx?.drawImage(videoRef.current, 0, 0, 320, 240);
+            if (ctx) ctx.drawImage(videoRef.current, 0, 0, 320, 240);
             const photoData = canvasRef.current.toDataURL('image/png');
             setIntruderAlert(photoData);
             const newLog = { photo: photoData, time: new Date().toLocaleString() };
             const updatedLogs = [newLog, ...intruderLogs];
             setIntruderLogs(updatedLogs);
-            localStorage.setItem('intruder_logs', JSON.stringify(updatedLogs));
+            safeStorage.setItem('intruder_logs', JSON.stringify(updatedLogs));
             stream.getTracks().forEach(track => track.stop());
           }
         }, 1000);
@@ -1329,15 +1607,15 @@ export default function PasswordBreachChecker() {
       const newLog = { photo: 'CAMERA_DENIED', time: new Date().toLocaleString() };
       const updatedLogs = [newLog, ...intruderLogs];
       setIntruderLogs(updatedLogs);
-      localStorage.setItem('intruder_logs', JSON.stringify(updatedLogs));
+      safeStorage.setItem('intruder_logs', JSON.stringify(updatedLogs));
     }
   };
 
   const unlockVault = () => {
-    if (!isCryptoLoaded()) return alert('Encryption library not loaded. Please refresh.');
+    if (!isCryptoLoaded()) return alert('⏳ Encryption library loading... Please wait a moment and try again.');
     if (needsSetup) return alert('Complete setup first!');
-    const encryptedReal = localStorage.getItem('secure_vault_real');
-    const encryptedDecoy = localStorage.getItem('secure_vault_decoy');
+    const encryptedReal = safeStorage.getItem('secure_vault_real');
+    const encryptedDecoy = safeStorage.getItem('secure_vault_decoy');
     try {
       const bytes = window.CryptoJS.AES.decrypt(encryptedReal, masterPassword);
       const decryptedData = JSON.parse(bytes.toString(window.CryptoJS.enc.Utf8));
@@ -1356,9 +1634,10 @@ export default function PasswordBreachChecker() {
 
   // ===== STEP 4: UPDATED saveVault WITH AUTO BACKUP TO INDEXEDDB =====
   const saveVault = (data) => {
+    if (!isCryptoLoaded()) { console.error('CryptoJS not ready'); return; }
     const storageKey = activeVaultMode === 'decoy' ? 'secure_vault_decoy' : 'secure_vault_real';
     const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(data), masterPassword).toString();
-    localStorage.setItem(storageKey, encrypted);
+    safeStorage.setItem(storageKey, encrypted);
     setVaultData(data);
 
     // ===== AUTO BACKUP TO INDEXEDDB =====
@@ -1390,14 +1669,14 @@ export default function PasswordBreachChecker() {
     dlAnchorElem.click();
     const now = Date.now();
     setLastBackupReminder(now);
-    localStorage.setItem('lastBackupReminder', now.toString());
+    safeStorage.setItem('lastBackupReminder', now.toString());
     setShowUnlockWarning(false);
     alert('✅ Vault exported successfully!\n\n💾 Keep this backup file SAFE!');
   };
 
   const clearIntruderLogs = () => {
     if (window.confirm("Are you sure you want to clear all intruder logs?")) {
-      setIntruderLogs([]); localStorage.removeItem('intruder_logs');
+      setIntruderLogs([]); safeStorage.removeItem('intruder_logs');
     }
   };
 
@@ -1493,10 +1772,195 @@ export default function PasswordBreachChecker() {
       setHistory([]);
       if (historyPasswordKey) {
         const encrypted = await encryptData([], historyPasswordKey);
-        localStorage.setItem('encrypted_check_history', encrypted);
+        safeStorage.setItem('encrypted_check_history', encrypted);
       }
     }
   };
+
+  // ===================================================
+  // ===== NOTES VAULT — FULL SECURE IMPLEMENTATION =====
+  // ===================================================
+
+  const setupNotesPassword = async () => {
+    if (!notesSetupPass || notesSetupPass.length < 6) return alert('⚠️ Notes password must be at least 6 characters!');
+    if (notesSetupPass !== notesSetupConfirm) return alert('⚠️ Passwords do not match!');
+    const hash = await sha256Hash(notesSetupPass);
+    safeStorage.setItem('notes_password_hash', hash);
+    const encrypted = await encryptData([], notesSetupPass);
+    safeStorage.setItem('encrypted_notes_data', encrypted);
+    saveBackupToIndexedDB();
+    setNotesNeedsSetup(false);
+    setNotesPasswordKey(notesSetupPass);
+    setNotesUnlocked(true);
+    setNotes([]);
+    setNotesSetupPass('');
+    setNotesSetupConfirm('');
+    alert('✅ Notes password created!\n\n⚠️ REMEMBER this password — it CANNOT be recovered!');
+  };
+
+  const unlockNotes = async () => {
+    if (notesLocked || !notesAccessPassword) return;
+    const storedHash = safeStorage.getItem('notes_password_hash');
+    const inputHash = await sha256Hash(notesAccessPassword);
+    if (inputHash === storedHash) {
+      setNotesFailedAttempts(0);
+      setNotesPasswordKey(notesAccessPassword);
+      const encryptedNotes = safeStorage.getItem('encrypted_notes_data');
+      if (encryptedNotes) {
+        try { const dec = await decryptData(encryptedNotes, notesAccessPassword); setNotes(dec); }
+        catch (e) { setNotes([]); }
+      } else { setNotes([]); }
+      setNotesUnlocked(true);
+      setNotesAccessPassword('');
+    } else {
+      const newFails = notesFailedAttempts + 1;
+      setNotesFailedAttempts(newFails);
+      if (newFails >= 5) {
+        safeStorage.removeItem('encrypted_notes_data');
+        safeStorage.removeItem('notes_password_hash');
+        captureIntruder();
+        setNotesNeedsSetup(true);
+        setNotesFailedAttempts(0);
+        alert('🚨 SECURITY BREACH!\n\n5 failed attempts detected.\n\n⚠️ ALL NOTES DATA PERMANENTLY DESTROYED.\n\n📸 Intruder captured.');
+      } else if (newFails >= 3) {
+        setNotesLocked(true);
+        setNotesLockTimer(60);
+        captureIntruder();
+        alert(`🚨 INTRUDER ALERT!\n\n${newFails} failed attempts.\nLocked for 60 seconds.\n📸 Photo captured.\n\n⚠️ ${5 - newFails} more wrong = ALL NOTES WIPED!`);
+      } else {
+        alert(`❌ Wrong password!\n\nAttempt ${newFails}/5\n⚠️ After 3 fails: 60s lockout + photo\n⚠️ After 5 fails: ALL NOTES DESTROYED`);
+      }
+      setNotesAccessPassword('');
+    }
+  };
+
+  const lockNotes = () => {
+    setNotesUnlocked(false); setNotes([]); setNotesPasswordKey('');
+    setNotesAccessPassword(''); setActiveNoteId(null); setNoteView('list');
+  };
+
+  const saveNotes = async (updatedNotes) => {
+    setNotes(updatedNotes);
+    if (notesPasswordKey) {
+      try {
+        const encrypted = await encryptData(updatedNotes, notesPasswordKey);
+        safeStorage.setItem('encrypted_notes_data', encrypted);
+        saveBackupToIndexedDB();
+      } catch (e) { console.error('Notes save failed'); }
+    }
+  };
+
+  const createNote = () => {
+    const newNote = {
+      id: Date.now().toString(),
+      title: 'Untitled Note',
+      content: '',
+      color: '#ffffff',
+      tag: '',
+      createdAt: new Date().toLocaleString(),
+      updatedAt: new Date().toLocaleString(),
+      pinned: false,
+    };
+    const updated = [newNote, ...notes];
+    saveNotes(updated);
+    setActiveNoteId(newNote.id);
+    setNoteEditorTitle(newNote.title);
+    setNoteEditorContent(newNote.content);
+    setNoteEditorColor(newNote.color);
+    setNoteEditorTag(newNote.tag);
+    setNoteView('editor');
+  };
+
+  const openNote = (note) => {
+    setActiveNoteId(note.id);
+    setNoteEditorTitle(note.title);
+    setNoteEditorContent(note.content);
+    setNoteEditorColor(note.color);
+    setNoteEditorTag(note.tag || '');
+    setNoteView('editor');
+  };
+
+  const saveCurrentNote = async () => {
+    if (!activeNoteId) return;
+    const updated = notes.map(n => n.id === activeNoteId
+      ? { ...n, title: noteEditorTitle || 'Untitled', content: noteEditorContent, color: noteEditorColor, tag: noteEditorTag, updatedAt: new Date().toLocaleString() }
+      : n
+    );
+    await saveNotes(updated);
+  };
+
+  const deleteNote = async (id) => {
+    if (!window.confirm('Delete this note permanently?')) return;
+    const updated = notes.filter(n => n.id !== id);
+    await saveNotes(updated);
+    if (activeNoteId === id) { setActiveNoteId(null); setNoteView('list'); }
+  };
+
+  const togglePinNote = async (id) => {
+    const updated = notes.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n);
+    await saveNotes(updated);
+  };
+
+  const exportNotes = async () => {
+    if (!notesPasswordKey) return;
+    if (!isCryptoLoaded()) return alert('⏳ Encryption library loading... Please wait a moment and try again.');
+    // Export as encrypted .enc file — only openable with master key
+    const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(notes), notesPasswordKey).toString();
+    const blob = new Blob([encrypted], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PassGuard_Notes_Backup_${new Date().toISOString().split('T')[0]}.enc`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyNoteText = async (text) => {
+    try { await navigator.clipboard.writeText(text); setNoteCopied(true); setTimeout(() => setNoteCopied(false), 2000); } catch (e) {}
+  };
+
+  // Rich text editor command executor
+  const execNoteCmd = (cmd, val = null) => {
+    const editor = noteEditorRef.current;
+    if (!editor) return;
+    editor.focus();
+    // Restore selection if needed
+    const sel = window.getSelection();
+    try {
+      document.execCommand(cmd, false, val);
+    } catch(e) {
+      console.warn('execCommand not supported:', cmd);
+    }
+    setTimeout(() => {
+      if (noteEditorRef.current) {
+        setNoteEditorContent(noteEditorRef.current.innerHTML);
+      }
+    }, 0);
+  };
+
+  // Insert code block into note
+  const [noteCodeBlocks, setNoteCodeBlocks] = useState([]);
+  const insertCodeBlock = () => {
+    const id = 'cb_' + Date.now();
+    setNoteCodeBlocks(prev => [...prev, id]);
+  };
+
+  const filteredNotes = notes.filter(n =>
+    !noteSearchQuery || n.title.toLowerCase().includes(noteSearchQuery.toLowerCase()) ||
+    n.content.toLowerCase().includes(noteSearchQuery.toLowerCase()) ||
+    (n.tag && n.tag.toLowerCase().includes(noteSearchQuery.toLowerCase()))
+  ).sort((a, b) => (a.pinned === b.pinned ? 0 : a.pinned ? -1 : 1));
+
+  const NOTE_COLORS = [
+    { val: '#ffffff', label: 'White' },
+    { val: '#fef9c3', label: 'Yellow' },
+    { val: '#dcfce7', label: 'Green' },
+    { val: '#dbeafe', label: 'Blue' },
+    { val: '#fce7f3', label: 'Pink' },
+    { val: '#ede9fe', label: 'Purple' },
+    { val: '#ffedd5', label: 'Orange' },
+    { val: '#f1f5f9', label: 'Gray' },
+  ];
 
   const tabs = [
     { id: 'checker', label: 'Check', icon: '🔍' },
@@ -1504,12 +1968,208 @@ export default function PasswordBreachChecker() {
     { id: 'vault', label: 'Vault', icon: '🔐' },
     { id: 'urlScanner', label: 'Link Scan', icon: '🔗' },
     { id: 'history', label: 'History', icon: '📜' },
+    { id: 'notes', label: 'Notes', icon: '📝' },
   ];
 
   const toggleDarkMode = () => {
     const newVal = !darkMode;
     setDarkMode(newVal);
-    localStorage.setItem('passguard_darkmode', String(newVal));
+    safeStorage.setItem('passguard_darkmode', String(newVal));
+  };
+
+  // Render note editor (extracted from IIFE for compatibility)
+  const renderNoteEditor = () => {
+              const activeNote = notes.find(n => n.id === activeNoteId);
+              if (!activeNote) return null;
+              const noteBg = dm
+                ? noteEditorColor === '#ffffff' ? 'rgba(20,20,35,0.95)' : noteEditorColor + '18'
+                : noteEditorColor;
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Editor top bar */}
+                  <div className="mac-card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <button onClick={() => { saveCurrentNote(); setNoteView('list'); }} style={{ background: dm ? 'rgba(0,200,255,0.1)' : 'rgba(0,113,227,0.08)', border: `1px solid ${dm ? 'rgba(0,200,255,0.25)' : 'rgba(0,113,227,0.2)'}`, borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', color: dm ? '#00c8ff' : '#0071e3', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      ← Back
+                    </button>
+                    <input
+                      value={noteEditorTitle}
+                      onChange={e => setNoteEditorTitle(e.target.value)}
+                      onBlur={saveCurrentNote}
+                      placeholder="Note title..."
+                      style={{ flex: 1, minWidth: '120px', background: 'transparent', border: 'none', outline: 'none', fontSize: '17px', fontWeight: 800, color: dm ? '#e2e8f0' : '#1d1d1f', fontFamily: 'inherit' }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        value={noteEditorTag}
+                        onChange={e => setNoteEditorTag(e.target.value)}
+                        onBlur={saveCurrentNote}
+                        placeholder="#tag"
+                        style={{ width: '80px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: `1px solid ${dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, borderRadius: '8px', padding: '5px 10px', fontSize: '12px', color: dm ? '#a855f7' : '#7c3aed', fontFamily: "'JetBrains Mono', monospace", outline: 'none' }}
+                      />
+                      {NOTE_COLORS.map(c => (
+                        <button key={c.val} onClick={() => { setNoteEditorColor(c.val); setTimeout(saveCurrentNote, 100); }}
+                          title={c.label}
+                          style={{ width: '20px', height: '20px', borderRadius: '50%', background: c.val, border: noteEditorColor === c.val ? '3px solid #0071e3' : '2px solid rgba(0,0,0,0.15)', cursor: 'pointer', transition: 'transform 0.15s', flexShrink: 0 }}
+                        />
+                      ))}
+                      <button onClick={() => copyNoteText(activeNote.content.replace(/<[^>]*>/g, ''))} className="mac-success-btn" style={{ fontSize: '12px', padding: '5px 10px' }}>
+                        {noteCopied ? '✅' : '📋 Copy'}
+                      </button>
+                      <button onClick={() => deleteNote(activeNoteId)} className="mac-danger-btn" style={{ fontSize: '12px', padding: '5px 10px' }}>🗑️</button>
+                    </div>
+                  </div>
+
+                  {/* RICH TEXT TOOLBAR */}
+                  <div className="mac-card" style={{ padding: '8px 12px', display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                    {/* === FORMAT BUTTONS === */}
+                    {[
+                      { cmd: 'bold',          label: 'B',  title: 'Bold',          style: { fontWeight: 900 } },
+                      { cmd: 'italic',        label: 'I',  title: 'Italic',        style: { fontStyle: 'italic' } },
+                      { cmd: 'underline',     label: 'U',  title: 'Underline',     style: { textDecoration: 'underline' } },
+                      { cmd: 'strikeThrough', label: 'S',  title: 'Strikethrough', style: { textDecoration: 'line-through' } },
+                    ].map(({ cmd, label, title, style: st }) => (
+                      <button key={cmd} onMouseDown={e => { e.preventDefault(); execNoteCmd(cmd); }} title={title}
+                        style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), cursor: 'pointer', fontSize: '13px', color: dm ? '#e2e8f0' : '#1d1d1f', display: 'flex', alignItems: 'center', justifyContent: 'center', ...st }}>
+                        {label}
+                      </button>
+                    ))}
+
+                    <div style={{ width: '1px', height: '22px', background: dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 2px' }} />
+
+                    {/* === FONT SIZE === */}
+                    <select
+                      onMouseDown={e => e.stopPropagation()}
+                      onChange={e => { if(e.target.value) { execNoteCmd('fontSize', e.target.value); e.target.value = ''; } }}
+                      defaultValue=""
+                      style={{ height: '30px', borderRadius: '7px', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: dm ? '#e2e8f0' : '#1d1d1f', fontSize: '11px', padding: '0 4px', cursor: 'pointer', outline: 'none', minWidth: '68px' }}>
+                      <option value="" disabled>Size</option>
+                      <option value="1">Tiny (8px)</option>
+                      <option value="2">Small (11px)</option>
+                      <option value="3">Normal (13px)</option>
+                      <option value="4">Large (16px)</option>
+                      <option value="5">X-Large (18px)</option>
+                      <option value="6">Huge (24px)</option>
+                      <option value="7">Giant (32px)</option>
+                    </select>
+
+                    {/* === HEADINGS === */}
+                    {[1,2,3].map(n => (
+                      <button key={n} onMouseDown={e => { e.preventDefault(); execNoteCmd('formatBlock', 'h' + n); }} title={'Heading ' + n}
+                        style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), cursor: 'pointer', fontSize: '11px', fontWeight: 800, color: dm ? '#00c8ff' : '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        H{n}
+                      </button>
+                    ))}
+
+                    <div style={{ width: '1px', height: '22px', background: dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 2px' }} />
+
+                    {/* === TEXT COLOR === */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }} title="Text Color">
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: dm ? 'rgba(255,255,255,0.5)' : '#555' }}>A</span>
+                      <input type="color" defaultValue="#e11d48"
+                        onMouseDown={e => e.stopPropagation()}
+                        onChange={e => execNoteCmd('foreColor', e.target.value)}
+                        style={{ width: '26px', height: '26px', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'), borderRadius: '5px', cursor: 'pointer', padding: '1px', background: 'transparent' }} />
+                    </div>
+
+                    {/* === HIGHLIGHT COLOR === */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }} title="Highlight">
+                      <span style={{ fontSize: '13px' }}>🖊</span>
+                      <input type="color" defaultValue="#fef08a"
+                        onMouseDown={e => e.stopPropagation()}
+                        onChange={e => execNoteCmd('hiliteColor', e.target.value)}
+                        style={{ width: '26px', height: '26px', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'), borderRadius: '5px', cursor: 'pointer', padding: '1px', background: 'transparent' }} />
+                    </div>
+
+                    <div style={{ width: '1px', height: '22px', background: dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 2px' }} />
+
+                    {/* === LISTS & ALIGN === */}
+                    {[
+                      { cmd: 'insertUnorderedList', label: '• —', title: 'Bullet List' },
+                      { cmd: 'insertOrderedList',   label: '1.', title: 'Numbered List' },
+                      { cmd: 'justifyLeft',         label: '▤',  title: 'Align Left' },
+                      { cmd: 'justifyCenter',       label: '▥',  title: 'Center' },
+                      { cmd: 'justifyRight',        label: '▦',  title: 'Align Right' },
+                    ].map(({ cmd, label, title }) => (
+                      <button key={cmd} onMouseDown={e => { e.preventDefault(); execNoteCmd(cmd); }} title={title}
+                        style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), cursor: 'pointer', fontSize: '12px', color: dm ? '#e2e8f0' : '#1d1d1f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {label}
+                      </button>
+                    ))}
+
+                    <div style={{ width: '1px', height: '22px', background: dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 2px' }} />
+
+                    {/* === QUOTE & HR === */}
+                    <button onMouseDown={e => { e.preventDefault(); execNoteCmd('formatBlock', 'blockquote'); }} title="Blockquote"
+                      style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(0,200,255,0.08)' : 'rgba(0,113,227,0.06)', border: '1px solid ' + (dm ? 'rgba(0,200,255,0.2)' : 'rgba(0,113,227,0.15)'), cursor: 'pointer', fontSize: '14px', fontWeight: 900, color: dm ? '#00c8ff' : '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      ❝
+                    </button>
+                    <button onMouseDown={e => { e.preventDefault(); execNoteCmd('insertHorizontalRule'); }} title="Divider"
+                      style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), cursor: 'pointer', fontSize: '11px', fontWeight: 700, color: dm ? '#e2e8f0' : '#1d1d1f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      —
+                    </button>
+
+                    {/* === CODE BLOCK INSERT === */}
+                    <button onMouseDown={e => e.preventDefault()} onClick={insertCodeBlock} title="Insert Code Block"
+                      style={{ height: '30px', padding: '0 10px', borderRadius: '7px', background: dm ? 'rgba(168,85,247,0.15)' : 'rgba(124,58,237,0.1)', border: '1px solid ' + (dm ? 'rgba(168,85,247,0.35)' : 'rgba(124,58,237,0.25)'), cursor: 'pointer', fontSize: '11px', fontWeight: 700, color: dm ? '#a855f7' : '#7c3aed', display: 'flex', alignItems: 'center', gap: '4px', fontFamily: "'JetBrains Mono', monospace" }}>
+                      {'</>'} Code
+                    </button>
+
+                    {/* === UNDO / REDO === */}
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '4px' }}>
+                      <button onMouseDown={e => { e.preventDefault(); execNoteCmd('undo'); }} title="Undo"
+                        style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↩</button>
+                      <button onMouseDown={e => { e.preventDefault(); execNoteCmd('redo'); }} title="Redo"
+                        style={{ minWidth: '30px', height: '30px', borderRadius: '7px', background: dm ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: '1px solid ' + (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'), cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↪</button>
+                    </div>
+                  </div>
+
+                  {/* CODE BLOCKS */}
+                  {noteCodeBlocks.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {noteCodeBlocks.map((cbId) => (
+                        <CodeBlock key={cbId} dm={dm} onRemove={() => setNoteCodeBlocks(prev => prev.filter(id => id !== cbId))} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Editor content area */}
+                  <div className="mac-card" style={{ padding: '0', overflow: 'hidden', background: dm ? (noteEditorColor !== '#ffffff' ? noteEditorColor + '18' : 'rgba(14,14,24,0.92)') : noteEditorColor }}>
+                    <style>{`
+                      .note-editor { outline: none; min-height: 420px; padding: 24px; font-size: 15px; line-height: 1.8; color: ${dm ? '#e2e8f0' : '#1d1d1f'}; font-family: 'Space Grotesk', sans-serif; }
+                      .note-editor h1 { font-size: 2rem; font-weight: 800; margin: 12px 0; color: ${dm ? '#00c8ff' : '#0071e3'}; }
+                      .note-editor h2 { font-size: 1.5rem; font-weight: 700; margin: 10px 0; color: ${dm ? '#a855f7' : '#7c3aed'}; }
+                      .note-editor h3 { font-size: 1.2rem; font-weight: 700; margin: 8px 0; }
+                      .note-editor blockquote { border-left: 4px solid ${dm ? '#00c8ff' : '#0071e3'}; margin: 12px 0; padding: 8px 16px; background: ${dm ? 'rgba(0,200,255,0.06)' : 'rgba(0,113,227,0.05)'}; border-radius: 0 8px 8px 0; font-style: italic; color: ${dm ? '#94a3b8' : '#555'}; }
+                      .note-editor pre { background: ${dm ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.06)'}; border: 1px solid ${dm ? 'rgba(168,85,247,0.3)' : 'rgba(124,58,237,0.2)'}; border-radius: 8px; padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: ${dm ? '#a855f7' : '#7c3aed'}; white-space: pre-wrap; word-break: break-word; }
+                      .note-editor ul { list-style: disc; padding-left: 24px; }
+                      .note-editor ol { list-style: decimal; padding-left: 24px; }
+                      .note-editor li { margin: 4px 0; }
+                      .note-editor hr { border: none; border-top: 2px solid ${dm ? 'rgba(0,200,255,0.2)' : 'rgba(0,0,0,0.1)'}; margin: 16px 0; }
+                      .note-editor a { color: ${dm ? '#00c8ff' : '#0071e3'}; text-decoration: underline; }
+                    `}</style>
+                    <NoteEditor
+                      editorRef={noteEditorRef}
+                      initialContent={activeNote.content}
+                      onInput={html => setNoteEditorContent(html)}
+                      onBlur={saveCurrentNote}
+                      dm={dm}
+                    />
+                  </div>
+
+                  {/* Bottom info bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ fontSize: '11px', color: dm ? 'rgba(255,255,255,0.3)' : '#aaa', fontFamily: "'JetBrains Mono', monospace" }}>
+                      Last saved: {activeNote.updatedAt}
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={saveCurrentNote} className="mac-btn-primary" style={{ fontSize: '13px', padding: '7px 16px' }}>
+                        💾 Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            return null;
   };
 
   const dm = darkMode;
@@ -1550,6 +2210,8 @@ export default function PasswordBreachChecker() {
         .icon-btn-danger:hover { background: rgba(255,59,48,0.1); }
 
         /* === ATTACK SCENE ANIMATIONS === */
+        .note-editor:empty:before { content: attr(data-placeholder); color: rgba(128,128,128,0.5); pointer-events: none; }
+        .note-editor:focus:empty:before { color: rgba(128,128,128,0.35); }
         @keyframes hackerWalk { 0%,100% { transform: translateX(0) scaleX(-1); } 50% { transform: translateX(-8px) scaleX(-1); } }
         @keyframes hackerWalkR { 0%,100% { transform: translateX(0); } 50% { transform: translateX(8px); } }
         @keyframes bombFly { 0% { transform: translate(0,0) rotate(0deg); opacity:1; } 70% { opacity:1; } 100% { transform: translate(var(--bx,80px), var(--by,-80px)) rotate(720deg); opacity:0; } }
@@ -1636,7 +2298,7 @@ export default function PasswordBreachChecker() {
             <img src={intruderAlert} alt="Intruder" style={{ width: '280px', height: '210px', objectFit: 'cover', border: '3px solid #fff', borderRadius: '12px', boxShadow: '0 0 40px rgba(255,0,0,0.6)' }} />
           ) : (
             <div style={{ width: '280px', height: '210px', background: 'rgba(255,255,255,0.1)', border: '3px solid #fff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '16px', fontSize: '14px' }}>
-              CAMERA ACCESS DENIED. TIMESTAMP & IP LOGGED.
+              CAMERA ACCESS DENIED. TIMESTAMP &amp; IP LOGGED.
             </div>
           )}
           <button onClick={() => { setIntruderAlert(null); setFailedAttempts(0); }} style={{ marginTop: '28px', padding: '12px 28px', background: '#fff', color: '#b00000', fontWeight: 700, border: 'none', borderRadius: '10px', fontSize: '15px', cursor: 'pointer' }}>
@@ -1726,7 +2388,7 @@ export default function PasswordBreachChecker() {
             {!restoreFile ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <button
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => { if (fileInputRef.current) fileInputRef.current.click(); }}
                   className="mac-btn-primary"
                   style={{ width: '100%', padding: '13px', fontSize: '15px' }}
                 >
@@ -1736,7 +2398,7 @@ export default function PasswordBreachChecker() {
                   onClick={() => {
                     setDataLost(false);
                     setNeedsSetup(true);
-                    localStorage.removeItem('passguard_ever_setup');
+                    safeStorage.removeItem('passguard_ever_setup');
                   }}
                   className="mac-secondary-btn"
                   style={{ width: '100%', padding: '12px' }}
@@ -1784,14 +2446,14 @@ export default function PasswordBreachChecker() {
                         const encrypted = window.CryptoJS.AES.encrypt(
                           JSON.stringify(data), restorePassword
                         ).toString();
-                        localStorage.setItem('secure_vault_real', encrypted);
-                        localStorage.setItem('passguard_ever_setup', 'true');
+                        safeStorage.setItem('secure_vault_real', encrypted);
+                        safeStorage.setItem('passguard_ever_setup', 'true');
                         saveBackupToIndexedDB();
                         setRestoreStatus('✅ Vault restored successfully!');
                         setTimeout(() => window.location.reload(), 1500);
                       } else {
                         const restored = await importFullBackup(restoreFile);
-                        localStorage.setItem('passguard_ever_setup', 'true');
+                        safeStorage.setItem('passguard_ever_setup', 'true');
                         saveBackupToIndexedDB();
                         setRestoreStatus(`✅ Restored ${restored} items successfully!`);
                         setTimeout(() => window.location.reload(), 1500);
@@ -1917,7 +2579,7 @@ export default function PasswordBreachChecker() {
               <p style={{ color: dm ? 'rgba(0,200,255,0.5)' : '#6e6e73', fontSize: '13px', marginBottom: '20px', fontFamily: "'JetBrains Mono', monospace" }}>
                 Multi-layer: Heuristics v3 + Google Safe Browsing API + 2024/25 scam patterns
               </p>
-              <input type="text" value={urlToScan} onChange={e => setUrlToScan(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleScanUrl()} placeholder="Paste any URL... (e.g., https://login-hdfc-kyc.xyz/verify)" className="mac-input" style={{ width: '100%', padding: '12px 16px', marginBottom: '12px' }} />
+              <input type="text" value={urlToScan} onChange={e => setUrlToScan(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleScanUrl()} placeholder="Paste any URL... (e.g., https://login-hdfc-kyc.xyz/verify)" className="mac-input" style={{ width: '100%', padding: '12px 16px', marginBottom: '12px' }} />
               <button onClick={handleScanUrl} disabled={!urlToScan || isScanningUrl} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>
                 {isScanningUrl ? '⏳ Checking Google Safe Browsing + Heuristics...' : '🕵️ Run Deep Scan'}
               </button>
@@ -1995,7 +2657,7 @@ export default function PasswordBreachChecker() {
             <div className="mac-card" style={{ padding: '24px' }}>
               <label style={{ display: 'block', color: '#1d1d1f', fontWeight: 600, marginBottom: '10px', fontSize: '15px' }}>Enter Password to Check 🔐</label>
               <div style={{ position: 'relative', marginBottom: '14px' }}>
-                <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} onKeyPress={handleKeyPress} placeholder="Type your password here..." className="mac-input" style={{ width: '100%', padding: '13px 46px 13px 16px' }} />
+                <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyPress} placeholder="Type your password here..." className="mac-input" style={{ width: '100%', padding: '13px 46px 13px 16px' }} />
                 <button onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '18px' }}>
                   {showPassword ? '🙈' : '👁️'}
                 </button>
@@ -2023,7 +2685,7 @@ export default function PasswordBreachChecker() {
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: '3.5rem', marginBottom: '10px' }}>🚨</div>
                     <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#ff3b30', marginBottom: '6px' }}>Password Compromised!</h3>
-                    <p style={{ color: '#1d1d1f', fontSize: '15px' }}>Found in <strong style={{ color: '#ff3b30', fontSize: '26px' }}>{breachCount?.toLocaleString()}</strong> data breaches!</p>
+                    <p style={{ color: '#1d1d1f', fontSize: '15px' }}>Found in <strong style={{ color: '#ff3b30', fontSize: '26px' }}>{breachCount !== null ? breachCount.toLocaleString() : ""}</strong> data breaches!</p>
                   </div>
                 )}
               </div>
@@ -2045,7 +2707,7 @@ export default function PasswordBreachChecker() {
                   {[
                     { val: password.length, label: 'Characters' },
                     { val: entropy, label: 'Entropy (bits)' },
-                    { val: crackTime?.text, label: 'Time to Crack' },
+                    { val: crackTime ? crackTime.text : null, label: 'Time to Crack' },
                     { val: `${strength.score}/10`, label: 'Score' }
                   ].map((stat, i) => (
                     <div key={i} style={{ background: 'rgba(0,0,0,0.03)', borderRadius: '10px', padding: '14px 10px', textAlign: 'center', border: '1px solid rgba(0,0,0,0.05)' }}>
@@ -2481,6 +3143,216 @@ export default function PasswordBreachChecker() {
                       </div>
                     ))}
                   </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ===== NOTES VAULT ===== */}
+        {activeTab === 'notes' && (
+          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+            {/* NOTES SETUP */}
+            {notesNeedsSetup ? (
+              <div className="mac-card" style={{ padding: '32px', textAlign: 'center' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📝</div>
+                <h2 style={{ fontSize: '20px', fontWeight: 800, color: dm ? '#e2e8f0' : '#1d1d1f', marginBottom: '8px' }}>Secure Notes Vault</h2>
+                <p style={{ color: dm ? 'rgba(255,255,255,0.45)' : '#6e6e73', fontSize: '14px', marginBottom: '24px', lineHeight: 1.6 }}>
+                  Your notes are encrypted with AES-256. Set a master key — it protects everything inside. This password <strong>cannot be recovered</strong>.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '360px', margin: '0 auto' }}>
+                  <input type="password" value={notesSetupPass} onChange={e => setNotesSetupPass(e.target.value)} placeholder="Create Notes Master Key (min 6 chars)" className="mac-input" style={{ padding: '13px 16px', width: '100%', textAlign: 'center', letterSpacing: '0.12em' }} />
+                  <input type="password" value={notesSetupConfirm} onChange={e => setNotesSetupConfirm(e.target.value)} onKeyDown={e => e.key === 'Enter' && setupNotesPassword()} placeholder="Confirm Notes Master Key" className="mac-input" style={{ padding: '13px 16px', width: '100%', textAlign: 'center', letterSpacing: '0.12em' }} />
+                  <button onClick={setupNotesPassword} disabled={!notesSetupPass || !notesSetupConfirm} className="mac-btn-primary" style={{ padding: '13px', fontSize: '15px', width: '100%' }}>
+                    🔐 Create Notes Vault
+                  </button>
+                </div>
+                <div style={{ marginTop: '16px', background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.15)', borderRadius: '10px', padding: '12px', maxWidth: '360px', margin: '16px auto 0' }}>
+                  <p style={{ color: '#c0392b', fontSize: '12px' }}>
+                    🛡️ SHA-256 hashed password. AES-256 encrypted data. <br/>Inspect Element = only cipher text. 5 wrong attempts = all notes wiped.
+                  </p>
+                </div>
+              </div>
+
+            ) : !notesUnlocked ? (
+              <div className="mac-card" style={{ padding: '32px', maxWidth: '420px', margin: '0 auto', width: '100%', textAlign: 'center' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔒</div>
+                <h2 style={{ fontSize: '20px', fontWeight: 800, color: dm ? '#e2e8f0' : '#1d1d1f', marginBottom: '6px' }}>Notes Vault Locked</h2>
+                <p style={{ color: dm ? 'rgba(255,255,255,0.4)' : '#6e6e73', fontSize: '13px', marginBottom: '20px' }}>Enter your Notes Master Key to access your encrypted notes.</p>
+
+                {notesLocked && (
+                  <div style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '10px', padding: '14px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>⏳</div>
+                    <p style={{ color: '#ff3b30', fontWeight: 700, fontSize: '15px' }}>LOCKED FOR {notesLockTimer}s</p>
+                    <p style={{ color: '#c0392b', fontSize: '12px', marginTop: '4px' }}>Too many wrong attempts. Please wait.</p>
+                  </div>
+                )}
+
+                <div style={{ position: 'relative', marginBottom: '12px' }}>
+                  <input
+                    type={notesShowPassword ? 'text' : 'password'}
+                    value={notesAccessPassword}
+                    onChange={e => setNotesAccessPassword(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !notesLocked && unlockNotes()}
+                    placeholder="Enter Notes Master Key"
+                    disabled={notesLocked}
+                    className="mac-input"
+                    style={{ width: '100%', padding: '13px 46px 13px 16px', textAlign: 'center', letterSpacing: '0.15em', fontSize: '16px', opacity: notesLocked ? 0.5 : 1 }}
+                  />
+                  <button onClick={() => setNotesShowPassword(p => !p)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '18px' }}>
+                    {notesShowPassword ? '🙈' : '👁️'}
+                  </button>
+                </div>
+
+                <button onClick={unlockNotes} disabled={!notesAccessPassword || notesLocked} className="mac-btn-primary" style={{ width: '100%', padding: '13px', fontSize: '15px' }}>
+                  {notesLocked ? `⏳ Locked (${notesLockTimer}s)` : 'Unlock Notes 🔓'}
+                </button>
+
+                <div style={{ marginTop: '14px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ width: '12px', height: '12px', borderRadius: '50%', background: i <= notesFailedAttempts ? (i >= 3 ? '#ff3b30' : '#ff9500') : (dm ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'), transition: 'all 0.3s' }} />
+                  ))}
+                </div>
+                <p style={{ marginTop: '8px', fontSize: '12px', color: notesFailedAttempts >= 3 ? '#ff3b30' : (dm ? 'rgba(255,255,255,0.35)' : '#6e6e73'), fontWeight: notesFailedAttempts >= 3 ? 700 : 400 }}>
+                  {notesFailedAttempts === 0 ? 'Enter your key to unlock' : notesFailedAttempts < 3 ? `⚠️ ${notesFailedAttempts}/5 failed attempts` : `🚨 ${notesFailedAttempts}/5 — ${5 - notesFailedAttempts} more = NOTES DESTROYED!`}
+                </p>
+                <div style={{ marginTop: '14px', background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.15)', borderRadius: '10px', padding: '12px' }}>
+                  <p style={{ color: '#c0392b', fontSize: '12px' }}>
+                    🛡️ <strong>Anti-Hack:</strong> SHA-256 hashed key. AES-256 encrypted. Inspect Element = gibberish. 5 wrong attempts = all data wiped.
+                  </p>
+                </div>
+              </div>
+
+            ) : noteView === 'editor' && activeNoteId ? renderNoteEditor() : (
+              <>
+                {/* Top bar */}
+                <div className="mac-card" style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34c759', fontWeight: 700, fontSize: '14px' }}>
+                    <span style={{ fontSize: '18px' }}>🔓</span>
+                    <span>Notes Unlocked — AES-256 Encrypted</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button onClick={exportNotes} className="mac-success-btn" style={{ fontSize: '12px', padding: '5px 12px' }}>📤 Export .enc</button>
+                    <button onClick={lockNotes} className="mac-danger-btn">🔒 Lock Notes</button>
+                  </div>
+                </div>
+
+                {/* Search + New */}
+                <div className="mac-card" style={{ padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
+                      <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '16px', pointerEvents: 'none' }}>🔍</span>
+                      <input
+                        type="text"
+                        value={noteSearchQuery}
+                        onChange={e => setNoteSearchQuery(e.target.value)}
+                        placeholder="Search notes, tags..."
+                        className="mac-input"
+                        style={{ width: '100%', padding: '10px 12px 10px 38px', fontSize: '14px' }}
+                      />
+                    </div>
+                    <button onClick={createNote} className="mac-btn-primary" style={{ padding: '10px 20px', fontSize: '14px', whiteSpace: 'nowrap' }}>
+                      + New Note
+                    </button>
+                  </div>
+                </div>
+
+                {/* Notes grid */}
+                {filteredNotes.length === 0 ? (
+                  <div className="mac-card" style={{ padding: '48px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '3.5rem', marginBottom: '12px' }}>📭</div>
+                    <p style={{ color: dm ? 'rgba(255,255,255,0.4)' : '#6e6e73', fontSize: '16px', fontWeight: 600 }}>No notes yet!</p>
+                    <p style={{ color: dm ? 'rgba(255,255,255,0.25)' : '#aaa', fontSize: '13px', marginTop: '6px' }}>Click "+ New Note" to create your first encrypted note.</p>
+                    <button onClick={createNote} className="mac-btn-primary" style={{ marginTop: '20px', padding: '12px 28px', fontSize: '15px' }}>
+                      📝 Create First Note
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
+                    {filteredNotes.map(note => {
+                      const cardBg = dm
+                        ? note.color !== '#ffffff' ? note.color + '18' : 'rgba(20,20,35,0.92)'
+                        : note.color;
+                      const cardBorder = dm
+                        ? note.color !== '#ffffff' ? note.color + '44' : 'rgba(0,200,255,0.1)'
+                        : 'rgba(0,0,0,0.07)';
+                      const preview = note.content.replace(/<[^>]*>/g, '').slice(0, 120);
+                      return (
+                        <div
+                          key={note.id}
+                          onClick={() => openNote(note)}
+                          style={{ background: cardBg, border: `1.5px solid ${cardBorder}`, borderRadius: '16px', padding: '16px', cursor: 'pointer', transition: 'all 0.22s', position: 'relative', backdropFilter: 'blur(12px)' }}
+                          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.15)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+                        >
+                          {/* Pin indicator */}
+                          {note.pinned && (
+                            <div style={{ position: 'absolute', top: '10px', right: '10px', fontSize: '14px' }}>📌</div>
+                          )}
+
+                          {/* Title */}
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: dm ? '#e2e8f0' : '#1d1d1f', marginBottom: '8px', paddingRight: note.pinned ? '20px' : '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {note.title || 'Untitled'}
+                          </div>
+
+                          {/* Preview */}
+                          <div style={{ fontSize: '13px', color: dm ? 'rgba(255,255,255,0.45)' : '#6e6e73', lineHeight: 1.5, marginBottom: '12px', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                            {preview || 'Empty note...'}
+                          </div>
+
+                          {/* Bottom bar */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                            <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                              {note.tag && (
+                                <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '5px', background: dm ? 'rgba(168,85,247,0.15)' : 'rgba(124,58,237,0.1)', color: dm ? '#a855f7' : '#7c3aed', fontFamily: "'JetBrains Mono', monospace" }}>
+                                  #{note.tag}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '10px', color: dm ? 'rgba(255,255,255,0.25)' : '#bbb', fontFamily: "'JetBrains Mono', monospace" }}>
+                                {note.updatedAt ? note.updatedAt.split(',')[0] : ''}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                              <button onClick={() => togglePinNote(note.id)} title={note.pinned ? 'Unpin' : 'Pin'}
+                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '2px 5px', borderRadius: '5px', opacity: 0.7, transition: 'opacity 0.15s' }}
+                                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
+                                {note.pinned ? '📌' : '📍'}
+                              </button>
+                              <button onClick={() => copyNoteText(note.content.replace(/<[^>]*>/g, ''))} title="Copy text"
+                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '2px 5px', borderRadius: '5px', opacity: 0.7, transition: 'opacity 0.15s' }}
+                                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
+                                📋
+                              </button>
+                              <button onClick={() => deleteNote(note.id)} title="Delete"
+                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', padding: '2px 5px', borderRadius: '5px', opacity: 0.7, transition: 'opacity 0.15s' }}
+                                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Notes stats */}
+                <div className="mac-card" style={{ padding: '16px 20px', display: 'flex', gap: '20px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {[
+                    { val: notes.length, label: 'Total Notes', icon: '📝' },
+                    { val: notes.filter(n => n.pinned).length, label: 'Pinned', icon: '📌' },
+                    { val: [...new Set(notes.map(n => n.tag).filter(Boolean))].length, label: 'Tags', icon: '🏷️' },
+                  ].map((s, i) => (
+                    <div key={i} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', marginBottom: '2px' }}>{s.icon}</div>
+                      <div style={{ fontSize: '22px', fontWeight: 800, color: dm ? '#00c8ff' : '#0071e3', fontFamily: "'JetBrains Mono', monospace" }}>{s.val}</div>
+                      <div style={{ fontSize: '11px', color: dm ? 'rgba(255,255,255,0.35)' : '#888', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
+                    </div>
+                  ))}
                 </div>
               </>
             )}
